@@ -39,7 +39,7 @@
     "write": "ask",
     "bash": {
       "*": "ask",
-      "git push*": "deny",
+      "git push*": "ask",
       "rm -rf*": "deny"
     }
   }
