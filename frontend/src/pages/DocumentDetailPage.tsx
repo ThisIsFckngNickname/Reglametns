@@ -1,0 +1,1105 @@
+import { useEffect, useState, useCallback } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import {
+  Tabs,
+  Descriptions,
+  Tag,
+  Button,
+  Typography,
+  Spin,
+  Alert,
+  Card,
+  Tree,
+  Table,
+  Select,
+  Popconfirm,
+  Space,
+  Breadcrumb,
+  Empty,
+  List,
+  Modal,
+  Upload,
+  Input,
+  message,
+} from 'antd'
+import {
+  ArrowLeftOutlined,
+  DownloadOutlined,
+  DeleteOutlined,
+  FileTextOutlined,
+  FolderOutlined,
+  PlusOutlined,
+  LinkOutlined,
+  UploadOutlined,
+  InboxOutlined,
+} from '@ant-design/icons'
+import type { DataNode } from 'antd/es/tree'
+import type { ColumnsType } from 'antd/es/table'
+import type { UploadFile } from 'antd/es/upload'
+import type {
+  DocumentDetail,
+  DocumentSection,
+  DocumentTerm,
+  DocumentAbbreviation,
+  DocumentTable,
+  DocumentVersion,
+  DocumentStatus,
+  DocumentLink,
+  DocumentListItem,
+} from '../types'
+import { useDocumentStore } from '../store/documentStore'
+import {
+  getDocumentSections,
+  getDocumentTerms,
+  getDocumentAbbreviations,
+  getDocumentTables,
+  getDocumentVersions,
+  getDownloadUrl,
+} from '../api/documents'
+import { createDocumentVersion } from '../api/versions'
+import {
+  getDocumentLinks,
+  createDocumentLink,
+  deleteDocumentLink,
+} from '../api/links'
+import { getDocuments } from '../api/documents'
+import { STATUS_LABELS, STATUS_COLORS, formatFileSize } from '../utils/statusHelpers'
+import ImpactMapTab from '../components/ImpactMapTab'
+import VersionDiffTab from '../components/VersionDiffTab'
+import dayjs from 'dayjs'
+
+const { Title, Text, Paragraph } = Typography
+const { TextArea } = Input
+const { Dragger } = Upload
+
+const LINK_TYPE_LABELS: Record<string, string> = {
+  references: 'Ссылается',
+  amends: 'Изменяет',
+  supersedes: 'Отменяет',
+  related: 'Связан',
+}
+
+// Convert sections tree to Ant Design Tree nodes
+function sectionsToTreeNodes(sections: DocumentSection[]): DataNode[] {
+  return sections.map((s) => ({
+    key: `section-${s.id}`,
+    title: s.title,
+    children: s.children.length > 0 ? sectionsToTreeNodes(s.children) : undefined,
+    isLeaf: s.children.length === 0,
+  }))
+}
+
+// Find a section by id in the tree
+function findSectionById(sections: DocumentSection[], id: number): DocumentSection | null {
+  for (const s of sections) {
+    if (s.id === id) return s
+    if (s.children.length > 0) {
+      const found = findSectionById(s.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+export default function DocumentDetailPage() {
+  const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const documentId = parseInt(id || '0')
+
+  const {
+    currentDocument,
+    detailLoading,
+    detailError,
+    fetchDocument,
+    updateDocument,
+    archiveDocument,
+    clearCurrent,
+  } = useDocumentStore()
+
+  const [sections, setSections] = useState<DocumentSection[]>([])
+  const [sectionsLoading, setSectionsLoading] = useState(false)
+  const [selectedSection, setSelectedSection] = useState<DocumentSection | null>(null)
+
+  const [terms, setTerms] = useState<DocumentTerm[]>([])
+  const [termsLoading, setTermsLoading] = useState(false)
+
+  const [abbreviations, setAbbreviations] = useState<DocumentAbbreviation[]>([])
+  const [abbreviationsLoading, setAbbreviationsLoading] = useState(false)
+
+  const [tables, setTables] = useState<DocumentTable[]>([])
+  const [tablesLoading, setTablesLoading] = useState(false)
+
+  const [versions, setVersions] = useState<DocumentVersion[]>([])
+  const [versionsLoading, setVersionsLoading] = useState(false)
+
+  const [statusUpdating, setStatusUpdating] = useState(false)
+
+  // ---- Version creation ----
+  const [versionModalOpen, setVersionModalOpen] = useState(false)
+  const [versionFileList, setVersionFileList] = useState<UploadFile[]>([])
+  const [versionNotes, setVersionNotes] = useState('')
+  const [versionCreating, setVersionCreating] = useState(false)
+
+  // ---- Links ----
+  const [links, setLinks] = useState<DocumentLink[]>([])
+  const [linksLoading, setLinksLoading] = useState(false)
+
+  // ---- Link creation modal ----
+  const [linkModalOpen, setLinkModalOpen] = useState(false)
+  const [linkTargetDocId, setLinkTargetDocId] = useState<number | null>(null)
+  const [linkType, setLinkType] = useState<string>('references')
+  const [linkDescription, setLinkDescription] = useState('')
+  const [linking, setLinking] = useState(false)
+  const [availableDocs, setAvailableDocs] = useState<DocumentListItem[]>([])
+
+  // Load document
+  useEffect(() => {
+    if (documentId > 0) {
+      fetchDocument(documentId)
+    }
+    return () => {
+      clearCurrent()
+    }
+  }, [documentId, fetchDocument, clearCurrent])
+
+  // Load sections
+  const loadSections = useCallback(async () => {
+    if (!documentId) return
+    setSectionsLoading(true)
+    try {
+      const data = await getDocumentSections(documentId)
+      setSections(data.sections)
+    } catch {
+      // Silently fail
+    } finally {
+      setSectionsLoading(false)
+    }
+  }, [documentId])
+
+  // Load terms
+  const loadTerms = useCallback(async () => {
+    if (!documentId) return
+    setTermsLoading(true)
+    try {
+      const data = await getDocumentTerms(documentId)
+      setTerms(data.terms)
+    } catch {
+      // Silently fail
+    } finally {
+      setTermsLoading(false)
+    }
+  }, [documentId])
+
+  // Load abbreviations
+  const loadAbbreviations = useCallback(async () => {
+    if (!documentId) return
+    setAbbreviationsLoading(true)
+    try {
+      const data = await getDocumentAbbreviations(documentId)
+      setAbbreviations(data.abbreviations)
+    } catch {
+      // Silently fail
+    } finally {
+      setAbbreviationsLoading(false)
+    }
+  }, [documentId])
+
+  // Load tables
+  const loadTables = useCallback(async () => {
+    if (!documentId) return
+    setTablesLoading(true)
+    try {
+      const data = await getDocumentTables(documentId)
+      setTables(data.tables)
+    } catch {
+      // Silently fail
+    } finally {
+      setTablesLoading(false)
+    }
+  }, [documentId])
+
+  // Load versions
+  const loadVersions = useCallback(async () => {
+    if (!documentId) return
+    setVersionsLoading(true)
+    try {
+      const data = await getDocumentVersions(documentId)
+      setVersions(data.items)
+    } catch {
+      // Silently fail
+    } finally {
+      setVersionsLoading(false)
+    }
+  }, [documentId])
+
+  // Load links
+  const loadLinks = useCallback(async () => {
+    if (!documentId) return
+    setLinksLoading(true)
+    try {
+      const data = await getDocumentLinks(documentId)
+      setLinks(data.items)
+    } catch {
+      // Silently fail
+    } finally {
+      setLinksLoading(false)
+    }
+  }, [documentId])
+
+  const handleTabChange = (activeKey: string) => {
+    switch (activeKey) {
+      case 'structure':
+        if (sections.length === 0) loadSections()
+        break
+      case 'terms':
+        if (terms.length === 0) loadTerms()
+        break
+      case 'abbreviations':
+        if (abbreviations.length === 0) loadAbbreviations()
+        break
+      case 'tables':
+        if (tables.length === 0) loadTables()
+        break
+      case 'versions':
+        if (versions.length === 0) loadVersions()
+        break
+      case 'links':
+        if (links.length === 0) loadLinks()
+        break
+      case 'impact':
+        // ImpactMapTab handles its own loading
+        break
+    }
+  }
+
+  const handleStatusChange = async (newStatus: DocumentStatus) => {
+    if (!currentDocument) return
+    setStatusUpdating(true)
+    try {
+      await updateDocument(currentDocument.id, { status: newStatus })
+      message.success(`Статус изменён на «${STATUS_LABELS[newStatus]}»`)
+    } catch {
+      message.error('Ошибка при изменении статуса')
+    } finally {
+      setStatusUpdating(false)
+    }
+  }
+
+  const handleArchive = async () => {
+    if (!currentDocument) return
+    try {
+      await archiveDocument(currentDocument.id)
+      message.success('Документ архивирован')
+      navigate('/documents')
+    } catch {
+      message.error('Ошибка при архивировании документа')
+    }
+  }
+
+  const handleDownload = (versionId: number) => {
+    const url = getDownloadUrl(versionId)
+    window.open(url, '_blank')
+  }
+
+  const handleTreeSelect = (selectedKeys: React.Key[]) => {
+    if (selectedKeys.length === 0) {
+      setSelectedSection(null)
+      return
+    }
+    const key = selectedKeys[0] as string
+    const sectionId = parseInt(key.replace('section-', ''))
+    const section = findSectionById(sections, sectionId)
+    setSelectedSection(section || null)
+  }
+
+  // ---- Version creation handlers ----
+  const handleOpenVersionModal = () => {
+    setVersionFileList([])
+    setVersionNotes('')
+    setVersionModalOpen(true)
+  }
+
+  const handleCreateVersion = async () => {
+    if (versionFileList.length === 0) {
+      message.error('Выберите файл для новой версии')
+      return
+    }
+    const file = versionFileList[0].originFileObj
+    if (!file) {
+      message.error('Файл не найден')
+      return
+    }
+
+    setVersionCreating(true)
+    try {
+      await createDocumentVersion(
+        documentId,
+        file,
+        versionNotes || undefined
+      )
+      message.success('Новая версия создана')
+      setVersionModalOpen(false)
+      // Reload versions and document
+      loadVersions()
+      fetchDocument(documentId)
+    } catch {
+      message.error('Ошибка при создании версии')
+    } finally {
+      setVersionCreating(false)
+    }
+  }
+
+  // ---- Link handlers ----
+  const handleOpenLinkModal = async () => {
+    // Load available documents for selection
+    try {
+      const data = await getDocuments({ page: 1, page_size: 50 })
+      setAvailableDocs(data.items)
+    } catch {
+      // Silently fail
+    }
+    setLinkTargetDocId(null)
+    setLinkType('references')
+    setLinkDescription('')
+    setLinkModalOpen(true)
+  }
+
+  const handleCreateLink = async () => {
+    if (!linkTargetDocId) {
+      message.error('Выберите целевой документ')
+      return
+    }
+    setLinking(true)
+    try {
+      await createDocumentLink(documentId, {
+        target_document_id: linkTargetDocId,
+        link_type: linkType,
+        description: linkDescription || undefined,
+      })
+      message.success('Связь добавлена')
+      setLinkModalOpen(false)
+      loadLinks()
+    } catch {
+      message.error('Ошибка при создании связи')
+    } finally {
+      setLinking(false)
+    }
+  }
+
+  const handleDeleteLink = async (linkId: number) => {
+    try {
+      await deleteDocumentLink(linkId)
+      message.success('Связь удалена')
+      loadLinks()
+    } catch {
+      message.error('Ошибка при удалении связи')
+    }
+  }
+
+  // Loading state
+  if (detailLoading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+        <Spin size="large" tip="Загрузка документа..." />
+      </div>
+    )
+  }
+
+  // Error state
+  if (detailError) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Button
+          type="link"
+          icon={<ArrowLeftOutlined />}
+          onClick={() => navigate('/documents')}
+          style={{ padding: 0, marginBottom: 16 }}
+        >
+          Назад к реестру
+        </Button>
+        <Alert
+          message="Ошибка загрузки документа"
+          description={detailError}
+          type="error"
+          showIcon
+        />
+      </div>
+    )
+  }
+
+  // Not found
+  if (!currentDocument) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Button
+          type="link"
+          icon={<ArrowLeftOutlined />}
+          onClick={() => navigate('/documents')}
+          style={{ padding: 0, marginBottom: 16 }}
+        >
+          Назад к реестру
+        </Button>
+        <Empty description="Документ не найден" />
+      </div>
+    )
+  }
+
+  const doc = currentDocument
+
+  // Status options (disallow current status)
+  const statusOptions = (Object.keys(STATUS_LABELS) as DocumentStatus[])
+    .filter((s) => s !== 'archived') // Can't change from archived
+    .map((s) => ({
+      value: s,
+      label: STATUS_LABELS[s],
+      disabled: s === doc.status,
+    }))
+
+  // Link type options for the link creation modal
+  const linkTypeOptions = [
+    { value: 'references', label: 'Ссылается' },
+    { value: 'amends', label: 'Изменяет' },
+    { value: 'supersedes', label: 'Отменяет' },
+    { value: 'related', label: 'Связан' },
+  ]
+
+  // Columns for versions table
+  const versionColumns: ColumnsType<DocumentVersion> = [
+    {
+      title: 'Версия',
+      dataIndex: 'version_number',
+      key: 'version_number',
+      width: 80,
+      render: (v: number) => <Tag>v{v}</Tag>,
+    },
+    {
+      title: 'Тип',
+      dataIndex: 'file_type',
+      key: 'file_type',
+      width: 80,
+      render: (t: string) => <Tag>{t.toUpperCase()}</Tag>,
+    },
+    {
+      title: 'Размер',
+      dataIndex: 'file_size',
+      key: 'file_size',
+      width: 100,
+      render: (s: number) => formatFileSize(s),
+    },
+    {
+      title: 'Комментарий',
+      dataIndex: 'version_notes',
+      key: 'version_notes',
+      ellipsis: true,
+      render: (val: string | null) => val || <Text type="secondary">—</Text>,
+    },
+    {
+      title: 'Загрузил',
+      dataIndex: ['uploaded_by', 'email'],
+      key: 'uploaded_by',
+      width: 200,
+    },
+    {
+      title: 'Дата',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 160,
+      render: (date: string) => dayjs(date).format('DD.MM.YYYY HH:mm'),
+    },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 100,
+      render: (_: any, record: DocumentVersion) => (
+        <Button
+          type="primary"
+          size="small"
+          icon={<DownloadOutlined />}
+          onClick={() => handleDownload(record.id)}
+        >
+          Скачать
+        </Button>
+      ),
+    },
+  ]
+
+  // Columns for links table
+  const linkColumns: ColumnsType<DocumentLink> = [
+    {
+      title: 'Тип связи',
+      dataIndex: 'link_type',
+      key: 'link_type',
+      width: 130,
+      render: (t: string) => <Tag>{LINK_TYPE_LABELS[t] || t}</Tag>,
+    },
+    {
+      title: 'Документ',
+      key: 'document',
+      render: (_, record) => {
+        // If this document is the source, show target; if target, show source
+        const linkedDoc = record.source_document_id === documentId
+          ? record.target_document
+          : record.source_document
+        return linkedDoc ? (
+          <Button
+            type="link"
+            style={{ padding: 0 }}
+            onClick={() => navigate(`/documents/${linkedDoc.id}`)}
+          >
+            {linkedDoc.title}
+          </Button>
+        ) : (
+          <Text type="secondary">Документ #{record.target_document_id}</Text>
+        )
+      },
+    },
+    {
+      title: 'Описание',
+      dataIndex: 'description',
+      key: 'description',
+      ellipsis: true,
+      render: (val: string | null) => val || <Text type="secondary">—</Text>,
+    },
+    {
+      title: 'Источник',
+      key: 'source',
+      width: 100,
+      render: (_, record) =>
+        record.is_manual ? (
+          <Tag color="blue">Ручная</Tag>
+        ) : (
+          <Tag>Авто</Tag>
+        ),
+    },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 80,
+      render: (_: any, record: DocumentLink) => (
+        <Popconfirm
+          title="Удалить связь?"
+          onConfirm={() => handleDeleteLink(record.id)}
+          okText="Удалить"
+          cancelText="Отмена"
+        >
+          <Button
+            type="link"
+            danger
+            size="small"
+            icon={<DeleteOutlined />}
+          />
+        </Popconfirm>
+      ),
+    },
+  ]
+
+  // Filter out already linked docs and current doc
+  const linkedDocIds = links.map((l) =>
+    l.source_document_id === documentId ? l.target_document_id : l.source_document_id
+  )
+  const docsForLink = availableDocs.filter(
+    (d) => d.id !== documentId && !linkedDocIds.includes(d.id)
+  )
+
+  return (
+    <div style={{ padding: 24 }}>
+      {/* Breadcrumbs */}
+      <Breadcrumb
+        items={[
+          {
+            title: (
+              <span
+                onClick={() => navigate('/documents')}
+                style={{ cursor: 'pointer' }}
+              >
+                Реестр документов
+              </span>
+            ),
+          },
+          {
+            title: doc.title,
+          },
+        ]}
+        style={{ marginBottom: 16 }}
+      />
+
+      {/* Back button */}
+      <Button
+        type="link"
+        icon={<ArrowLeftOutlined />}
+        onClick={() => navigate('/documents')}
+        style={{ padding: 0, marginBottom: 16 }}
+      >
+        Назад к реестру
+      </Button>
+
+      {/* Title and actions */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          marginBottom: 24,
+        }}
+      >
+        <Space align="center">
+          <FileTextOutlined style={{ fontSize: 24, color: '#1890ff' }} />
+          <div>
+            <Title level={3} style={{ margin: 0 }}>
+              {doc.title}
+            </Title>
+            <Space style={{ marginTop: 4 }}>
+              <Tag color={STATUS_COLORS[doc.status]}>
+                {STATUS_LABELS[doc.status]}
+              </Tag>
+              {doc.current_version && (
+                <Text type="secondary">
+                  v{doc.current_version.version_number}
+                </Text>
+              )}
+            </Space>
+          </div>
+        </Space>
+
+        <Space>
+          {/* Only show status change for non-archived documents */}
+          {doc.status !== 'archived' && (
+            <Select
+              value={doc.status}
+              onChange={handleStatusChange}
+              options={statusOptions}
+              style={{ width: 180 }}
+              loading={statusUpdating}
+              aria-label="Изменить статус"
+            />
+          )}
+
+          {doc.status !== 'archived' && (
+            <Popconfirm
+              title="Архивировать документ?"
+              description="Документ будет перемещён в архив. Вы сможете просматривать его, но не сможете изменять."
+              onConfirm={handleArchive}
+              okText="Архивировать"
+              cancelText="Отмена"
+            >
+              <Button icon={<DeleteOutlined />} danger>
+                Архивировать
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
+      </div>
+
+      {/* Tabs */}
+      <Card>
+        <Tabs
+          defaultActiveKey="info"
+          onChange={handleTabChange}
+          items={[
+            {
+              key: 'info',
+              label: 'Информация',
+              children: (
+                <div>
+                  <Descriptions
+                    bordered
+                    column={{ xs: 1, sm: 2 }}
+                    size="small"
+                  >
+                    <Descriptions.Item label="Название">
+                      {doc.title}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Статус">
+                      <Tag color={STATUS_COLORS[doc.status]}>
+                        {STATUS_LABELS[doc.status]}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Описание" span={2}>
+                      {doc.description || <Text type="secondary">Нет описания</Text>}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Автор">
+                      {doc.created_by.email}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Текущая версия">
+                      {doc.current_version
+                        ? `v${doc.current_version.version_number} (${formatFileSize(doc.current_version.file_size)})`
+                        : 'Нет версий'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Дата создания">
+                      {dayjs(doc.created_at).format('DD.MM.YYYY HH:mm')}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Дата обновления">
+                      {dayjs(doc.updated_at).format('DD.MM.YYYY HH:mm')}
+                    </Descriptions.Item>
+                  </Descriptions>
+
+                  <Title level={5} style={{ marginTop: 24, marginBottom: 16 }}>
+                    Статистика документа
+                  </Title>
+                  <Descriptions bordered column={{ xs: 2, sm: 5 }} size="small">
+                    <Descriptions.Item label="Разделы">
+                      {doc.stats.sections_count}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Таблицы">
+                      {doc.stats.tables_count}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Термины">
+                      {doc.stats.terms_count}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Сокращения">
+                      {doc.stats.abbreviations_count}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Версии">
+                      {doc.stats.versions_count}
+                    </Descriptions.Item>
+                  </Descriptions>
+                </div>
+              ),
+            },
+            {
+              key: 'structure',
+              label: `Структура (${doc.stats.sections_count})`,
+              children: (
+                <div style={{ display: 'flex', gap: 24, minHeight: 400 }}>
+                  <div style={{ width: 350, flexShrink: 0, overflow: 'auto' }}>
+                    {sectionsLoading ? (
+                      <Spin style={{ display: 'block', margin: '40px auto' }} />
+                    ) : sections.length === 0 ? (
+                      <Empty description="Нет разделов" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    ) : (
+                      <Tree
+                        treeData={sectionsToTreeNodes(sections)}
+                        defaultExpandAll
+                        onSelect={handleTreeSelect}
+                        showIcon
+                        icon={<FolderOutlined />}
+                      />
+                    )}
+                  </div>
+                  <div style={{ flex: 1, borderLeft: '1px solid #f0f0f0', paddingLeft: 24 }}>
+                    {selectedSection ? (
+                      <div>
+                        <Title level={5}>{selectedSection.title}</Title>
+                        {selectedSection.content ? (
+                          <Paragraph
+                            style={{
+                              whiteSpace: 'pre-wrap',
+                              background: '#fafafa',
+                              padding: 16,
+                              borderRadius: 4,
+                            }}
+                          >
+                            {selectedSection.content}
+                          </Paragraph>
+                        ) : (
+                          <Text type="secondary">Нет содержимого</Text>
+                        )}
+                      </div>
+                    ) : (
+                      <Empty
+                        description="Выберите раздел в дереве слева"
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      />
+                    )}
+                  </div>
+                </div>
+              ),
+            },
+            {
+              key: 'terms',
+              label: `Термины (${doc.stats.terms_count})`,
+              children: (
+                <div>
+                  {termsLoading ? (
+                    <Spin style={{ display: 'block', margin: '40px auto' }} />
+                  ) : terms.length === 0 ? (
+                    <Empty description="Термины не найдены" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ) : (
+                    <Table
+                      dataSource={terms}
+                      rowKey="id"
+                      columns={[
+                        { title: 'Термин', dataIndex: 'term', key: 'term', width: 250 },
+                        { title: 'Определение', dataIndex: 'definition', key: 'definition' },
+                      ]}
+                      pagination={false}
+                      size="middle"
+                    />
+                  )}
+                </div>
+              ),
+            },
+            {
+              key: 'abbreviations',
+              label: `Сокращения (${doc.stats.abbreviations_count})`,
+              children: (
+                <div>
+                  {abbreviationsLoading ? (
+                    <Spin style={{ display: 'block', margin: '40px auto' }} />
+                  ) : abbreviations.length === 0 ? (
+                    <Empty description="Сокращения не найдены" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ) : (
+                    <Table
+                      dataSource={abbreviations}
+                      rowKey="id"
+                      columns={[
+                        {
+                          title: 'Сокращение',
+                          dataIndex: 'abbreviation',
+                          key: 'abbreviation',
+                          width: 200,
+                          render: (text: string) => <Tag>{text}</Tag>,
+                        },
+                        {
+                          title: 'Расшифровка',
+                          dataIndex: 'full_form',
+                          key: 'full_form',
+                        },
+                      ]}
+                      pagination={false}
+                      size="middle"
+                    />
+                  )}
+                </div>
+              ),
+            },
+            {
+              key: 'tables',
+              label: `Таблицы (${doc.stats.tables_count})`,
+              children: (
+                <div>
+                  {tablesLoading ? (
+                    <Spin style={{ display: 'block', margin: '40px auto' }} />
+                  ) : tables.length === 0 ? (
+                    <Empty description="Таблицы не найдены" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ) : (
+                    <List
+                      dataSource={tables}
+                      renderItem={(table) => (
+                        <List.Item>
+                          <Card
+                            title={
+                              table.caption || `Таблица ${table.order_num}`
+                            }
+                            size="small"
+                            style={{ width: '100%' }}
+                          >
+                            {table.section_title && (
+                              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                                Раздел: {table.section_title}
+                              </Text>
+                            )}
+                            <div
+                              dangerouslySetInnerHTML={{ __html: table.html_content }}
+                              style={{ overflowX: 'auto' }}
+                            />
+                            <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                              {table.rows_count} строк × {table.cols_count} столбцов
+                            </Text>
+                          </Card>
+                        </List.Item>
+                      )}
+                    />
+                  )}
+                </div>
+              ),
+            },
+            {
+              key: 'versions',
+              label: `Версии (${doc.stats.versions_count})`,
+              children: (
+                <div>
+                  <div style={{ marginBottom: 16, textAlign: 'right' }}>
+                    {doc.status !== 'archived' && (
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={handleOpenVersionModal}
+                      >
+                        Создать версию
+                      </Button>
+                    )}
+                  </div>
+
+                  {versionsLoading ? (
+                    <Spin style={{ display: 'block', margin: '40px auto' }} />
+                  ) : versions.length === 0 ? (
+                    <Empty description="Нет версий" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ) : (
+                    <Table
+                      dataSource={versions}
+                      rowKey="id"
+                      columns={versionColumns}
+                      pagination={false}
+                      size="middle"
+                    />
+                  )}
+                </div>
+              ),
+            },
+            {
+              key: 'links',
+              label: `Связи (${links.length})`,
+              children: (
+                <div>
+                  <div style={{ marginBottom: 16, textAlign: 'right' }}>
+                    <Button
+                      type="primary"
+                      icon={<LinkOutlined />}
+                      onClick={handleOpenLinkModal}
+                    >
+                      Добавить связь
+                    </Button>
+                  </div>
+
+                  {linksLoading ? (
+                    <Spin style={{ display: 'block', margin: '40px auto' }} />
+                  ) : links.length === 0 ? (
+                    <Empty
+                      description="Нет связанных документов"
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    />
+                  ) : (
+                    <Table
+                      dataSource={links}
+                      rowKey="id"
+                      columns={linkColumns}
+                      pagination={false}
+                      size="middle"
+                    />
+                  )}
+                </div>
+              ),
+            },
+            {
+              key: 'version-diff',
+              label: 'Сравнение версий',
+              children: <VersionDiffTab documentId={documentId} />,
+            },
+            {
+              key: 'impact',
+              label: 'Карта влияний',
+              children: <ImpactMapTab documentId={documentId} />,
+            },
+          ]}
+        />
+      </Card>
+
+      {/* Create Version Modal */}
+      <Modal
+        title="Создать новую версию"
+        open={versionModalOpen}
+        onOk={handleCreateVersion}
+        onCancel={() => setVersionModalOpen(false)}
+        confirmLoading={versionCreating}
+        okText="Создать"
+        cancelText="Отмена"
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <div>
+            <Text strong>Файл документа</Text>
+            <Dragger
+              multiple={false}
+              accept=".docx,.pdf"
+              fileList={versionFileList}
+              onRemove={() => setVersionFileList([])}
+              beforeUpload={(file) => {
+                const isValid =
+                  file.type === 'application/pdf' ||
+                  file.name.endsWith('.docx') ||
+                  file.name.endsWith('.pdf')
+                if (!isValid) {
+                  message.error('Допустимы только файлы DOCX и PDF')
+                  return Upload.LIST_IGNORE
+                }
+                setVersionFileList([file as UploadFile])
+                return false
+              }}
+              style={{ marginTop: 4 }}
+            >
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined />
+              </p>
+              <p className="ant-upload-text">
+                Нажмите или перетащите файл сюда
+              </p>
+              <p className="ant-upload-hint">
+                DOCX или PDF
+              </p>
+            </Dragger>
+          </div>
+
+          <div>
+            <Text strong>Комментарий к версии</Text>
+            <TextArea
+              rows={3}
+              value={versionNotes}
+              onChange={(e) => setVersionNotes(e.target.value)}
+              placeholder="Что изменилось в этой версии (необязательно)"
+              style={{ marginTop: 4 }}
+            />
+          </div>
+        </Space>
+      </Modal>
+
+      {/* Add Link Modal */}
+      <Modal
+        title="Добавить связь с документом"
+        open={linkModalOpen}
+        onOk={handleCreateLink}
+        onCancel={() => setLinkModalOpen(false)}
+        confirmLoading={linking}
+        okText="Добавить"
+        cancelText="Отмена"
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <div>
+            <Text strong>Тип связи</Text>
+            <Select
+              style={{ width: '100%', marginTop: 4 }}
+              value={linkType}
+              onChange={setLinkType}
+              options={linkTypeOptions}
+            />
+          </div>
+
+          <div>
+            <Text strong>Целевой документ</Text>
+            <Select
+              showSearch
+              style={{ width: '100%', marginTop: 4 }}
+              placeholder="Найдите и выберите документ"
+              value={linkTargetDocId}
+              onChange={setLinkTargetDocId}
+              filterOption={(input, option) =>
+                (option?.label as string || '')
+                  .toLowerCase()
+                  .includes(input.toLowerCase())
+              }
+              options={docsForLink.map((d) => ({
+                value: d.id,
+                label: `${d.title} (v${d.version_number})`,
+              }))}
+              notFoundContent={
+                <Empty
+                  description="Документы не найдены"
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                />
+              }
+            />
+          </div>
+
+          <div>
+            <Text strong>Описание (необязательно)</Text>
+            <Input
+              style={{ marginTop: 4 }}
+              value={linkDescription}
+              onChange={(e) => setLinkDescription(e.target.value)}
+              placeholder="Пояснение к связи"
+            />
+          </div>
+        </Space>
+      </Modal>
+    </div>
+  )
+}

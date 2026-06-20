@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.egg
+.venv/
+venv/
+env/
+*.whl
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Environment files
+.env
+!.env.example
+
+# Database
+*.db
+*.sqlite
+
+# Uploads / Storage
+uploads/
+storage/
+backend/uploads/
+backend/storage/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Build
+*.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+
+# Temp
+mytemps/
+.pytest_cache/
+*.pytest_cache/
+backend/.pytest_cache/
+
+# Docker
+docker-data/

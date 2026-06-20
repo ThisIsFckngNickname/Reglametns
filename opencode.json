@@ -1,0 +1,46 @@
+﻿{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "AGENTS.md",
+    "system-reminder.md"
+  ],
+  "agent": {
+    "PM": {
+      "description": "Product Manager (Product scope and priorities)",
+      "prompt": "{file:./.opencode/agents/PM.md}"
+    },
+    "SA": {
+      "description": "System Analyst (Requirements and contracts)",
+      "prompt": "{file:./.opencode/agents/SA.md}"
+    },
+    "DA": {
+      "description": "Data Analyst (Metrics and reporting)",
+      "prompt": "{file:./.opencode/agents/DA.md}"
+    },
+    "DE": {
+      "description": "Data Engineer (Pipelines and warehouse)",
+      "prompt": "{file:./.opencode/agents/DE.md}"
+    },
+    "BE": {
+      "description": "Backend Engineer (API and business logic)",
+      "prompt": "{file:./.opencode/agents/BE.md}"
+    },
+    "FE": {
+      "description": "Frontend Engineer (UI and UX flows)",
+      "prompt": "{file:./.opencode/agents/FE.md}"
+    },
+    "IE": {
+      "description": "Infrastructure Engineer (CI/CD and operations)",
+      "prompt": "{file:./.opencode/agents/IE.md}"
+    }
+  },
+  "permission": {
+    "edit": "ask",
+    "write": "ask",
+    "bash": {
+      "*": "ask",
+      "git push*": "deny",
+      "rm -rf*": "deny"
+    }
+  }
+}

@@ -1,0 +1,46 @@
+version: '3.8'
+services:
+  db:
+    extends:
+      file: docker-compose.yml
+      service: db
+  minio:
+    extends:
+      file: docker-compose.yml
+      service: minio
+  createbuckets:
+    extends:
+      file: docker-compose.yml
+      service: createbuckets
+  redis:
+    extends:
+      file: docker-compose.yml
+      service: redis
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://srp:srp_pass@db:5432/srp
+      SECRET_KEY: change-me-in-production-min-32-chars-long
+      DEBUG: "true"
+      STORAGE_TYPE: s3
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: srp-documents
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_FROM_EMAIL: noreply@srp.dev
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      createbuckets:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
