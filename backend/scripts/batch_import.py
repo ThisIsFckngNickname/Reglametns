@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-async def upload_document(client: httpx.AsyncClient, api_url: str, token: str, file_path: str, holding_id: int) -> dict:
+async def upload_document(client: httpx.AsyncClient, api_url: str, token: str, file_path: str, company_id: int) -> dict:
     """Upload a single document."""
     filename = os.path.basename(file_path)
     category = os.path.basename(os.path.dirname(file_path))
@@ -79,7 +79,7 @@ async def main():
     parser = argparse.ArgumentParser(description="Batch import documents from directory")
     parser.add_argument("--api-url", default="http://localhost:8000", help="API base URL")
     parser.add_argument("--token", required=True, help="Auth token for API")
-    parser.add_argument("--holding-id", type=int, required=True, help="Holding ID")
+    parser.add_argument("--company-id", type=int, required=True, help="Company ID")
     parser.add_argument("--source", default="../../mytemps", help="Source directory with documents")
     parser.add_argument("--auto-approve", action="store_true", help="Auto-approve imported documents")
     args = parser.parse_args()
@@ -104,7 +104,7 @@ async def main():
         uploaded = []
         for file_path in sorted(files):
             try:
-                doc = await upload_document(client, args.api_url, args.token, str(file_path), args.holding_id)
+                doc = await upload_document(client, args.api_url, args.token, str(file_path), args.company_id)
                 if "id" in doc:
                     uploaded.append(doc)
             except Exception as e:

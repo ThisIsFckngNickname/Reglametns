@@ -11,7 +11,7 @@ class Settings(BaseSettings):
 
     # Upload settings
     max_upload_size: int = 20 * 1024 * 1024  # 20 MB
-    allowed_extensions: set = {".docx", ".pdf"}
+    allowed_extensions: set = {".docx", ".pdf", ".xlsx"}
     storage_path: str = "storage/documents"
 
     # Storage backend
@@ -28,23 +28,16 @@ class Settings(BaseSettings):
     # Local storage
     upload_dir: str = "./uploads"
 
-    # LLM provider selection: "ollama", "gigachat", "mock"
-    llm_provider: str = "ollama"  # will fall back to mock if connection fails
-
     # Ollama settings
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:14b"  # or "qwen2.5:7b" for CPU
+    ollama_model: str = "qwen2.5:7b"
+    ollama_embedding_model: str = "nomic-embed-text"
 
-    # GigaChat settings (optional — leave empty for mock mode)
-    gigachat_client_id: str = ""
-    gigachat_client_secret: str = ""
-    gigachat_model: str = "GigaChat-Pro"
-    gigachat_auth_url: str = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
-    gigachat_api_url: str = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
-    gigachat_verify_ssl: bool = False
+    # Generation settings
     generation_timeout: int = 120  # seconds
     generation_max_tokens: int = 48000
     generation_temperature: float = 0.3
+    generation_max_prompt_tokens: int = 28000
 
     # SMTP settings for email sending
     smtp_host: str = "localhost"
@@ -60,12 +53,25 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
-    redis_enabled: bool = True  # можно отключить для dev (fallback на in-memory)
+    redis_enabled: bool = True
 
     # Rate limiting
-    rate_limit_max_attempts: int = 5    # попыток в window
-    rate_limit_window_seconds: int = 60  # окно в секундах
-    rate_limit_block_minutes: int = 15   # блокировка после превышения
+    rate_limit_max_attempts: int = 5
+    rate_limit_window_seconds: int = 60
+    rate_limit_block_minutes: int = 15
+
+    # RAG settings
+    chroma_persist_directory: str = "./chroma_db"
+    rag_max_chunks: int = 8         # Сколько чанков добавлять в промпт
+    rag_chunk_size: int = 600       # Размер чанка в токенах (~600 слов для русского)
+    rag_chunk_overlap: int = 120    # Перекрытие между чанками
+    rag_min_chunk_length: int = 50  # Минимальная длина чанка для индексации
+
+    # Web search settings
+    web_search_enabled: bool = True
+    web_search_provider: str = "duckduckgo"  # "duckduckgo" | "tavily" | "serpapi"
+    tavily_api_key: str = ""
+    serpapi_api_key: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

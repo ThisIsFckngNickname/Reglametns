@@ -29,8 +29,6 @@ import {
   FileTextOutlined,
   FolderOutlined,
   PlusOutlined,
-  LinkOutlined,
-  UploadOutlined,
   InboxOutlined,
 } from '@ant-design/icons'
 import type { DataNode } from 'antd/es/tree'
@@ -44,8 +42,6 @@ import type {
   DocumentTable,
   DocumentVersion,
   DocumentStatus,
-  DocumentLink,
-  DocumentListItem,
 } from '../types'
 import { useDocumentStore } from '../store/documentStore'
 import { useAuthStore } from '../store/authStore'
@@ -60,27 +56,12 @@ import {
   deleteDocument,
 } from '../api/documents'
 import { createDocumentVersion } from '../api/versions'
-import {
-  getDocumentLinks,
-  createDocumentLink,
-  deleteDocumentLink,
-} from '../api/links'
-import { getDocuments } from '../api/documents'
 import { STATUS_LABELS, STATUS_COLORS, formatFileSize } from '../utils/statusHelpers'
-import ImpactMapTab from '../components/ImpactMapTab'
-import VersionDiffTab from '../components/VersionDiffTab'
 import dayjs from 'dayjs'
 
 const { Title, Text, Paragraph } = Typography
 const { TextArea } = Input
 const { Dragger } = Upload
-
-const LINK_TYPE_LABELS: Record<string, string> = {
-  references: 'Ссылается',
-  amends: 'Изменяет',
-  supersedes: 'Отменяет',
-  related: 'Связан',
-}
 
 // Convert sections tree to Ant Design Tree nodes
 function sectionsToTreeNodes(sections: DocumentSection[]): DataNode[] {
@@ -142,25 +123,13 @@ export default function DocumentDetailPage() {
   const [statusUpdating, setStatusUpdating] = useState(false)
 
   const { user } = useAuthStore()
-  const isAdmin = user?.holdings?.some((h) => h.role === 'admin') ?? false
+  const isAdmin = user?.companies?.some((h) => h.role === 'admin') ?? false
 
   // ---- Version creation ----
   const [versionModalOpen, setVersionModalOpen] = useState(false)
   const [versionFileList, setVersionFileList] = useState<UploadFile[]>([])
   const [versionNotes, setVersionNotes] = useState('')
   const [versionCreating, setVersionCreating] = useState(false)
-
-  // ---- Links ----
-  const [links, setLinks] = useState<DocumentLink[]>([])
-  const [linksLoading, setLinksLoading] = useState(false)
-
-  // ---- Link creation modal ----
-  const [linkModalOpen, setLinkModalOpen] = useState(false)
-  const [linkTargetDocId, setLinkTargetDocId] = useState<number | null>(null)
-  const [linkType, setLinkType] = useState<string>('references')
-  const [linkDescription, setLinkDescription] = useState('')
-  const [linking, setLinking] = useState(false)
-  const [availableDocs, setAvailableDocs] = useState<DocumentListItem[]>([])
 
   // Load document
   useEffect(() => {
@@ -249,20 +218,6 @@ export default function DocumentDetailPage() {
     }
   }, [documentId])
 
-  // Load links
-  const loadLinks = useCallback(async () => {
-    if (!documentId) return
-    setLinksLoading(true)
-    try {
-      const data = await getDocumentLinks(documentId)
-      setLinks(data.items)
-    } catch {
-      // Silently fail
-    } finally {
-      setLinksLoading(false)
-    }
-  }, [documentId])
-
   const handleTabChange = (activeKey: string) => {
     switch (activeKey) {
       case 'structure':
@@ -279,12 +234,6 @@ export default function DocumentDetailPage() {
         break
       case 'versions':
         if (versions.length === 0) loadVersions()
-        break
-      case 'links':
-        if (links.length === 0) loadLinks()
-        break
-      case 'impact':
-        // ImpactMapTab handles its own loading
         break
     }
   }
@@ -388,53 +337,6 @@ export default function DocumentDetailPage() {
     }
   }
 
-  // ---- Link handlers ----
-  const handleOpenLinkModal = async () => {
-    // Load available documents for selection
-    try {
-      const data = await getDocuments({ page: 1, page_size: 50 })
-      setAvailableDocs(data.items)
-    } catch {
-      // Silently fail
-    }
-    setLinkTargetDocId(null)
-    setLinkType('references')
-    setLinkDescription('')
-    setLinkModalOpen(true)
-  }
-
-  const handleCreateLink = async () => {
-    if (!linkTargetDocId) {
-      message.error('Выберите целевой документ')
-      return
-    }
-    setLinking(true)
-    try {
-      await createDocumentLink(documentId, {
-        target_document_id: linkTargetDocId,
-        link_type: linkType,
-        description: linkDescription || undefined,
-      })
-      message.success('Связь добавлена')
-      setLinkModalOpen(false)
-      loadLinks()
-    } catch {
-      message.error('Ошибка при создании связи')
-    } finally {
-      setLinking(false)
-    }
-  }
-
-  const handleDeleteLink = async (linkId: number) => {
-    try {
-      await deleteDocumentLink(linkId)
-      message.success('Связь удалена')
-      loadLinks()
-    } catch {
-      message.error('Ошибка при удалении связи')
-    }
-  }
-
   // Loading state
   if (detailLoading) {
     return (
@@ -493,14 +395,6 @@ export default function DocumentDetailPage() {
       label: STATUS_LABELS[s],
       disabled: s === doc.status,
     }))
-
-  // Link type options for the link creation modal
-  const linkTypeOptions = [
-    { value: 'references', label: 'Ссылается' },
-    { value: 'amends', label: 'Изменяет' },
-    { value: 'supersedes', label: 'Отменяет' },
-    { value: 'related', label: 'Связан' },
-  ]
 
   // Columns for versions table
   const versionColumns: ColumnsType<DocumentVersion> = [
@@ -561,84 +455,6 @@ export default function DocumentDetailPage() {
       ),
     },
   ]
-
-  // Columns for links table
-  const linkColumns: ColumnsType<DocumentLink> = [
-    {
-      title: 'Тип связи',
-      dataIndex: 'link_type',
-      key: 'link_type',
-      width: 130,
-      render: (t: string) => <Tag>{LINK_TYPE_LABELS[t] || t}</Tag>,
-    },
-    {
-      title: 'Документ',
-      key: 'document',
-      render: (_, record) => {
-        // If this document is the source, show target; if target, show source
-        const linkedDoc = record.source_document_id === documentId
-          ? record.target_document
-          : record.source_document
-        return linkedDoc ? (
-          <Button
-            type="link"
-            style={{ padding: 0 }}
-            onClick={() => navigate(`/documents/${linkedDoc.id}`)}
-          >
-            {linkedDoc.title}
-          </Button>
-        ) : (
-          <Text type="secondary">Документ #{record.target_document_id}</Text>
-        )
-      },
-    },
-    {
-      title: 'Описание',
-      dataIndex: 'description',
-      key: 'description',
-      ellipsis: true,
-      render: (val: string | null) => val || <Text type="secondary">—</Text>,
-    },
-    {
-      title: 'Источник',
-      key: 'source',
-      width: 100,
-      render: (_, record) =>
-        record.is_manual ? (
-          <Tag color="blue">Ручная</Tag>
-        ) : (
-          <Tag>Авто</Tag>
-        ),
-    },
-    {
-      title: 'Действия',
-      key: 'actions',
-      width: 80,
-      render: (_: any, record: DocumentLink) => (
-        <Popconfirm
-          title="Удалить связь?"
-          onConfirm={() => handleDeleteLink(record.id)}
-          okText="Удалить"
-          cancelText="Отмена"
-        >
-          <Button
-            type="link"
-            danger
-            size="small"
-            icon={<DeleteOutlined />}
-          />
-        </Popconfirm>
-      ),
-    },
-  ]
-
-  // Filter out already linked docs and current doc
-  const linkedDocIds = links.map((l) =>
-    l.source_document_id === documentId ? l.target_document_id : l.source_document_id
-  )
-  const docsForLink = availableDocs.filter(
-    (d) => d.id !== documentId && !linkedDocIds.includes(d.id)
-  )
 
   return (
     <div style={{ padding: 24 }}>
@@ -1002,50 +818,6 @@ export default function DocumentDetailPage() {
                 </div>
               ),
             },
-            {
-              key: 'links',
-              label: `Связи (${links.length})`,
-              children: (
-                <div>
-                  <div style={{ marginBottom: 16, textAlign: 'right' }}>
-                    <Button
-                      type="primary"
-                      icon={<LinkOutlined />}
-                      onClick={handleOpenLinkModal}
-                    >
-                      Добавить связь
-                    </Button>
-                  </div>
-
-                  {linksLoading ? (
-                    <Spin style={{ display: 'block', margin: '40px auto' }} />
-                  ) : links.length === 0 ? (
-                    <Empty
-                      description="Нет связанных документов"
-                      image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    />
-                  ) : (
-                    <Table
-                      dataSource={links}
-                      rowKey="id"
-                      columns={linkColumns}
-                      pagination={false}
-                      size="middle"
-                    />
-                  )}
-                </div>
-              ),
-            },
-            {
-              key: 'version-diff',
-              label: 'Сравнение версий',
-              children: <VersionDiffTab documentId={documentId} />,
-            },
-            {
-              key: 'impact',
-              label: 'Карта влияний',
-              children: <ImpactMapTab documentId={documentId} />,
-            },
           ]}
         />
       </Card>
@@ -1107,64 +879,6 @@ export default function DocumentDetailPage() {
         </Space>
       </Modal>
 
-      {/* Add Link Modal */}
-      <Modal
-        title="Добавить связь с документом"
-        open={linkModalOpen}
-        onOk={handleCreateLink}
-        onCancel={() => setLinkModalOpen(false)}
-        confirmLoading={linking}
-        okText="Добавить"
-        cancelText="Отмена"
-      >
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <div>
-            <Text strong>Тип связи</Text>
-            <Select
-              style={{ width: '100%', marginTop: 4 }}
-              value={linkType}
-              onChange={setLinkType}
-              options={linkTypeOptions}
-            />
-          </div>
-
-          <div>
-            <Text strong>Целевой документ</Text>
-            <Select
-              showSearch
-              style={{ width: '100%', marginTop: 4 }}
-              placeholder="Найдите и выберите документ"
-              value={linkTargetDocId}
-              onChange={setLinkTargetDocId}
-              filterOption={(input, option) =>
-                (option?.label as string || '')
-                  .toLowerCase()
-                  .includes(input.toLowerCase())
-              }
-              options={docsForLink.map((d) => ({
-                value: d.id,
-                label: `${d.title} (v${d.version_number})`,
-              }))}
-              notFoundContent={
-                <Empty
-                  description="Документы не найдены"
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                />
-              }
-            />
-          </div>
-
-          <div>
-            <Text strong>Описание (необязательно)</Text>
-            <Input
-              style={{ marginTop: 4 }}
-              value={linkDescription}
-              onChange={(e) => setLinkDescription(e.target.value)}
-              placeholder="Пояснение к связи"
-            />
-          </div>
-        </Space>
-      </Modal>
     </div>
   )
 }

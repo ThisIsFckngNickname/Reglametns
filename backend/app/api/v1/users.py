@@ -5,16 +5,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, require_admin, get_db
 from app.core.exceptions import ConflictException, NotFoundException, BadRequestException
 from app.core.security import hash_password
-from app.models.holding import Holding
+from app.models.company import Company
 from app.models.user import User
-from app.models.user_holding import UserHolding
+from app.models.user_company import UserCompany
 from app.schemas.user import (
     AdminUserCreate,
     AdminUserResponse,
     AdminUserUpdate,
-    SetHoldingRequest,
-    SetHoldingResponse,
-    UserHoldingInfo,
+    SetCompanyRequest,
+    SetCompanyResponse,
+    UserCompanyInfo,
 )
 from app.services.auth_service import AuthService
 
@@ -36,30 +36,30 @@ async def admin_list_users(
 
     response = []
     for user in users:
-        holdings_stmt = select(
-            UserHolding.holding_id,
-            Holding.name,
-            UserHolding.role,
-        ).join(Holding, UserHolding.holding_id == Holding.id).where(
-            UserHolding.user_id == user.id
+        companies_stmt = select(
+            UserCompany.company_id,
+            Company.name,
+            UserCompany.role,
+        ).join(Company, UserCompany.company_id == Company.id).where(
+            UserCompany.user_id == user.id
         )
-        holdings_result = await db.execute(holdings_stmt)
-        holdings = [
-            UserHoldingInfo(holding_id=h.holding_id, holding_name=h.name, role=h.role)
-            for h in holdings_result
+        companies_result = await db.execute(companies_stmt)
+        companies = [
+            UserCompanyInfo(company_id=c.company_id, company_name=c.name, role=c.role)
+            for c in companies_result
         ]
 
-        active_holding = None
-        if user.active_holding:
-            from app.schemas.holding import HoldingBrief
-            active_holding = HoldingBrief.model_validate(user.active_holding)
+        active_company = None
+        if user.active_company:
+            from app.schemas.company import CompanyBrief
+            active_company = CompanyBrief.model_validate(user.active_company)
 
         response.append(AdminUserResponse(
             id=user.id,
             email=user.email,
             is_verified=user.is_verified,
-            active_holding=active_holding,
-            holdings=holdings,
+            active_company=active_company,
+            companies=companies,
             created_at=user.created_at,
         ))
 
@@ -84,56 +84,56 @@ async def admin_create_user(
     db.add(user)
     await db.flush()
 
-    # Если указан holding, добавляем пользователя в него
-    holding_id = body.holding_id
+    # Если указана компания, добавляем пользователя в неё
+    company_id = body.company_id
     role = body.role
-    created_holding = None
+    created_company = None
 
-    if holding_id:
-        holding_stmt = select(Holding).where(Holding.id == holding_id)
-        holding_result = await db.execute(holding_stmt)
-        holding = holding_result.scalar_one_or_none()
-        if not holding:
-            raise NotFoundException(message="Холдинг не найден", field="holding_id")
+    if company_id:
+        company_stmt = select(Company).where(Company.id == company_id)
+        company_result = await db.execute(company_stmt)
+        company = company_result.scalar_one_or_none()
+        if not company:
+            raise NotFoundException(message="Компания не найдена", field="company_id")
 
-        user_holding = UserHolding(
+        user_company = UserCompany(
             user_id=user.id,
-            holding_id=holding.id,
+            company_id=company.id,
             role=role,
         )
-        db.add(user_holding)
-        user.active_holding_id = holding.id
-        created_holding = holding
+        db.add(user_company)
+        user.active_company_id = company.id
+        created_company = company
     else:
-        # Если холдинг не указан, используем первый доступный
-        first_holding_stmt = select(Holding).order_by(Holding.id).limit(1)
-        first_holding_result = await db.execute(first_holding_stmt)
-        first_holding = first_holding_result.scalar_one_or_none()
-        if first_holding:
-            user_holding = UserHolding(
+        # Если компания не указана, используем первую доступную
+        first_company_stmt = select(Company).order_by(Company.id).limit(1)
+        first_company_result = await db.execute(first_company_stmt)
+        first_company = first_company_result.scalar_one_or_none()
+        if first_company:
+            user_company = UserCompany(
                 user_id=user.id,
-                holding_id=first_holding.id,
+                company_id=first_company.id,
                 role=role,
             )
-            db.add(user_holding)
-            user.active_holding_id = first_holding.id
-            created_holding = first_holding
+            db.add(user_company)
+            user.active_company_id = first_company.id
+            created_company = first_company
 
     await db.flush()
 
-    from app.schemas.holding import HoldingBrief
-    active_holding = HoldingBrief.model_validate(created_holding) if created_holding else None
+    from app.schemas.company import CompanyBrief
+    active_company = CompanyBrief.model_validate(created_company) if created_company else None
 
     return AdminUserResponse(
         id=user.id,
         email=user.email,
         is_verified=user.is_verified,
-        active_holding=active_holding,
-        holdings=[UserHoldingInfo(
-            holding_id=created_holding.id,
-            holding_name=created_holding.name,
+        active_company=active_company,
+        companies=[UserCompanyInfo(
+            company_id=created_company.id,
+            company_name=created_company.name,
             role=role,
-        )] if created_holding else [],
+        )] if created_company else [],
         created_at=user.created_at,
     )
 
@@ -162,29 +162,29 @@ async def admin_update_user(
 
     await db.flush()
 
-    # Load holdings
-    holdings_stmt = select(
-        UserHolding.holding_id,
-        Holding.name,
-        UserHolding.role,
-    ).join(Holding, UserHolding.holding_id == Holding.id).where(
-        UserHolding.user_id == user.id
+    # Load companies
+    companies_stmt = select(
+        UserCompany.company_id,
+        Company.name,
+        UserCompany.role,
+    ).join(Company, UserCompany.company_id == Company.id).where(
+        UserCompany.user_id == user.id
     )
-    holdings_result = await db.execute(holdings_stmt)
-    holdings = [
-        UserHoldingInfo(holding_id=h.holding_id, holding_name=h.name, role=h.role)
-        for h in holdings_result
+    companies_result = await db.execute(companies_stmt)
+    companies = [
+        UserCompanyInfo(company_id=c.company_id, company_name=c.name, role=c.role)
+        for c in companies_result
     ]
 
-    from app.schemas.holding import HoldingBrief
-    active_holding = HoldingBrief.model_validate(user.active_holding) if user.active_holding else None
+    from app.schemas.company import CompanyBrief
+    active_company = CompanyBrief.model_validate(user.active_company) if user.active_company else None
 
     return AdminUserResponse(
         id=user.id,
         email=user.email,
         is_verified=user.is_verified,
-        active_holding=active_holding,
-        holdings=holdings,
+        active_company=active_company,
+        companies=companies,
         created_at=user.created_at,
     )
 
@@ -203,8 +203,8 @@ async def admin_delete_user(
     if not user:
         raise NotFoundException(message="Пользователь не найден", field="user_id")
 
-    # Удаляем связи с холдингами
-    delete_links = select(UserHolding).where(UserHolding.user_id == user_id)
+    # Удаляем связи с компаниями
+    delete_links = select(UserCompany).where(UserCompany.user_id == user_id)
     links_result = await db.execute(delete_links)
     for link in links_result.scalars().all():
         await db.delete(link)
@@ -251,15 +251,15 @@ async def admin_unban_user(
     return {"message": f"Пользователь {user.email} разблокирован"}
 
 
-@router.put("/admin/users/{user_id}/holdings/{holding_id}", status_code=200)
-async def admin_set_user_holding_role(
+@router.put("/admin/users/{user_id}/companies/{company_id}", status_code=200)
+async def admin_set_user_company_role(
     user_id: int,
-    holding_id: int,
+    company_id: int,
     role: str = "user",
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Назначить пользователю роль в холдинге (только админ)."""
+    """Назначить пользователю роль в компании (только админ)."""
     # Проверка пользователя
     user_stmt = select(User).where(User.id == user_id)
     user_result = await db.execute(user_stmt)
@@ -267,17 +267,17 @@ async def admin_set_user_holding_role(
     if not user:
         raise NotFoundException(message="Пользователь не найден", field="user_id")
 
-    # Проверка холдинга
-    holding_stmt = select(Holding).where(Holding.id == holding_id)
-    holding_result = await db.execute(holding_stmt)
-    holding = holding_result.scalar_one_or_none()
-    if not holding:
-        raise NotFoundException(message="Холдинг не найден", field="holding_id")
+    # Проверка компании
+    company_stmt = select(Company).where(Company.id == company_id)
+    company_result = await db.execute(company_stmt)
+    company = company_result.scalar_one_or_none()
+    if not company:
+        raise NotFoundException(message="Компания не найдена", field="company_id")
 
     # Проверка существующей связи
-    link_stmt = select(UserHolding).where(
-        UserHolding.user_id == user_id,
-        UserHolding.holding_id == holding_id,
+    link_stmt = select(UserCompany).where(
+        UserCompany.user_id == user_id,
+        UserCompany.company_id == company_id,
     )
     link_result = await db.execute(link_stmt)
     link = link_result.scalar_one_or_none()
@@ -285,22 +285,22 @@ async def admin_set_user_holding_role(
     if link:
         link.role = role
     else:
-        link = UserHolding(user_id=user_id, holding_id=holding_id, role=role)
+        link = UserCompany(user_id=user_id, company_id=company_id, role=role)
         db.add(link)
 
-    return {"message": f"Роль {role} назначена пользователю в холдинге {holding.name}"}
+    return {"message": f"Роль {role} назначена пользователю в компании {company.name}"}
 
 
 # ---- Пользовательские эндпоинты ----
 
 
-@router.put("/holding", response_model=SetHoldingResponse)
-async def set_active_holding(
-    body: SetHoldingRequest,
+@router.put("/company", response_model=SetCompanyResponse)
+async def set_active_company(
+    body: SetCompanyRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Set the active holding for the current user."""
+    """Set the active company for the current user."""
     svc = AuthService(db=db)
-    result = await svc.set_active_holding(user.id, body.holding_id)
+    result = await svc.set_active_company(user.id, body.company_id)
     return result

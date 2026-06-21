@@ -28,11 +28,11 @@ class LocalFileStorage:
     BASE_PATH = settings.storage_path
 
     async def save(
-        self, file: UploadFile, holding_id: int, document_id: int, version_number: int
+        self, file: UploadFile, company_id: int, document_id: int, version_number: int
     ) -> str:
         """Save file, return relative path.
 
-        Path: {holding_id}/{document_id}/{version_number}_{timestamp}.{ext}
+        Path: {company_id}/{document_id}/{version_number}_{timestamp}.{ext}
 
         The path is stored in the database and used to retrieve the file later.
         """
@@ -40,7 +40,7 @@ class LocalFileStorage:
         timestamp = int(datetime.now(timezone.utc).timestamp())
         filename = f"{version_number}_{timestamp}{ext}"
 
-        relative_dir = os.path.join(str(holding_id), str(document_id))
+        relative_dir = os.path.join(str(company_id), str(document_id))
         relative_path = os.path.join(relative_dir, filename)
         relative_path = relative_path.replace("\\", "/")
 

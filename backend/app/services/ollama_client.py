@@ -30,7 +30,7 @@ class OllamaClient(LLMClient):
     async def chat_completion(
         self,
         messages: list[dict],
-        temperature: float = 0.3,
+        temperature: float = 0.0,
         max_tokens: int = 48000,
     ) -> str:
         """Send chat completion to Ollama."""
@@ -39,6 +39,7 @@ class OllamaClient(LLMClient):
         payload = {
             "model": self.model,
             "messages": messages,
+            "format": "json",
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
@@ -62,15 +63,14 @@ class OllamaClient(LLMClient):
         except httpx.ConnectError as e:
             logger.error(f"Ollama connection failed: {e}. Is Ollama running?")
             self._mock_mode = True
-            from app.services.gigachat_service import MOCK_RESPONSE
-
-            return json.dumps(MOCK_RESPONSE, ensure_ascii=False)
+            raise RuntimeError(
+                f"Ollama is not available at {self.base_url}. "
+                f"Start Ollama and make sure model '{self.model}' is pulled."
+            ) from e
         except Exception as e:
             logger.error(f"Ollama request failed: {e}")
             self._mock_mode = True
-            from app.services.gigachat_service import MOCK_RESPONSE
-
-            return json.dumps(MOCK_RESPONSE, ensure_ascii=False)
+            raise
 
 
 # Singleton

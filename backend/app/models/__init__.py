@@ -1,6 +1,6 @@
 from app.models.user import User
-from app.models.holding import Holding
-from app.models.user_holding import UserHolding
+from app.models.company import Company
+from app.models.user_company import UserCompany
 from app.models.verification_code import VerificationCode
 from app.models.document import Document
 from app.models.document_version import DocumentVersion
@@ -10,13 +10,10 @@ from app.models.document_term import DocumentTerm
 from app.models.document_abbreviation import DocumentAbbreviation
 from app.models.document_link import DocumentLink
 from app.models.document_status_log import DocumentStatusLog
-from app.models.order import Order
-from app.models.order_document_link import OrderDocumentLink
-
 __all__ = [
     "User",
-    "Holding",
-    "UserHolding",
+    "Company",
+    "UserCompany",
     "VerificationCode",
     "Document",
     "DocumentVersion",
@@ -26,6 +23,4 @@ __all__ = [
     "DocumentAbbreviation",
     "DocumentLink",
     "DocumentStatusLog",
-    "Order",
-    "OrderDocumentLink",
 ]

@@ -1,5 +1,5 @@
 import { Layout, Button, Typography, Space, Tag } from 'antd'
-import { LogoutOutlined, UserOutlined, HomeOutlined, FileTextOutlined, RobotOutlined, SearchOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons'
+import { LogoutOutlined, UserOutlined, HomeOutlined, FileTextOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 
@@ -15,15 +15,13 @@ export default function Header() {
     navigate('/login')
   }
 
-  const holdingName = user?.active_holding
-    ? `${user.active_holding.legal_form} "${user.active_holding.name}"`
+  const companyName = user?.active_company
+    ? `${user.active_company.legal_form} "${user.active_company.name}"`
     : null
 
   // Determine active nav item
   const isDocumentsActive = location.pathname.startsWith('/documents')
   const isGeneratorActive = location.pathname.startsWith('/generator')
-  const isSourcesActive = location.pathname.startsWith('/legislation-sources')
-  const isLegislationActive = location.pathname.startsWith('/legislation') && !isSourcesActive
 
   return (
     <Layout.Header
@@ -63,25 +61,11 @@ export default function Header() {
           >
             Генератор
           </Button>
-          <Button
-            type={isLegislationActive ? 'primary' : 'text'}
-            icon={<SearchOutlined />}
-            onClick={() => navigate('/legislation')}
-          >
-            Поиск законов
-          </Button>
-          <Button
-            type={isSourcesActive ? 'primary' : 'text'}
-            icon={<GlobalOutlined />}
-            onClick={() => navigate('/legislation-sources')}
-          >
-            Источники
-          </Button>
-          {user?.holdings?.some(h => h.role === 'admin') && (
+          {user?.companies?.some(h => h.role === 'admin') && (
             <Button
               type={(location.pathname.startsWith('/admin')) ? 'primary' : 'text'}
               icon={<SettingOutlined />}
-              onClick={() => navigate('/admin/holdings')}
+              onClick={() => navigate('/admin/companies')}
             >
               Админка
             </Button>
@@ -89,11 +73,11 @@ export default function Header() {
         </Space>
       </Space>
 
-      {/* Right side: Holding info + User info */}
+      {/* Right side: Company info + User info */}
       <Space size="middle">
-        {holdingName && (
+        {companyName && (
           <Tag color="blue" style={{ fontSize: 13, padding: '2px 12px' }}>
-            {holdingName}
+            {companyName}
           </Tag>
         )}
 

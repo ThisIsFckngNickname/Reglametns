@@ -312,8 +312,8 @@ export default function GeneratorPage() {
             <Text strong style={{ display: 'block', marginBottom: 8 }}>
               Загрузка черновиков
             </Text>
-            <Dragger
-              accept=".docx,.pdf"
+              <Dragger
+                accept=".docx,.pdf,.xlsx"
               multiple
               fileList={fileList}
               beforeUpload={(file) => {

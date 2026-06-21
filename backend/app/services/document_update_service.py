@@ -1,0 +1,194 @@
+"""
+Document update service — status changes, archiving, and deletion.
+"""
+
+import logging
+from typing import Optional
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.core.exceptions import NotFoundException
+from app.models.document import Document
+from app.models.document_status import DocumentStatus
+from app.schemas.document import DocumentResponse, DocumentUpdate
+from app.services.storage_service import storage
+
+logger = logging.getLogger(__name__)
+
+
+class DocumentUpdateService:
+    """Document metadata updates and lifecycle operations."""
+
+    # Note: update_document calls self.get_document() which is defined in
+    # DocumentReadService. At runtime via the DocumentService facade (multiple
+    # inheritance), MRO resolves it correctly. This is a standard Python mixin
+    # pattern.
+
+    async def update_document(
+        self, id: int, data: DocumentUpdate, company_id: int, db: AsyncSession,
+        user_id: Optional[int] = None,
+    ) -> DocumentResponse:
+        """Update document metadata."""
+        stmt = select(Document).where(
+            Document.id == id,
+            Document.company_id == company_id,
+        )
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        old_status = doc.status
+
+        if data.title is not None:
+            doc.title = data.title
+        if data.description is not None:
+            doc.description = data.description
+        if data.status is not None:
+            doc.status = data.status
+
+        await db.flush()
+
+        # Log status change
+        if data.status is not None and data.status != old_status:
+            await self._log_status_change(
+                document_id=id,
+                from_status=old_status,
+                to_status=data.status,
+                user_id=user_id,
+                db=db,
+            )
+
+            # Trigger pattern analysis if document is approved and not yet analyzed
+            if data.status == DocumentStatus.APPROVED and not doc.was_analyzed:
+                from app.services.pattern_analysis_service import pattern_analysis_service
+                try:
+                    analysis_result = await pattern_analysis_service.analyze_document(
+                        document_id=id,
+                        db=db,
+                    )
+                    logger.info(
+                        f"Pattern analysis triggered for document {id}: {analysis_result}"
+                    )
+                except Exception as e:
+                    logger.error(f"Pattern analysis failed for document {id}: {e}", exc_info=True)
+                    # Don't fail the update if analysis fails
+
+            # Trigger RAG indexing when document is approved
+            if data.status == DocumentStatus.APPROVED:
+                await self._trigger_rag_indexing(id, company_id, db)
+
+        return await self.get_document(id, company_id, db)
+
+    async def _log_status_change(
+        self,
+        document_id: int,
+        from_status: Optional[DocumentStatus],
+        to_status: DocumentStatus,
+        user_id: Optional[int],
+        db: AsyncSession,
+    ) -> None:
+        """Log a document status change."""
+        from app.models.document_status_log import DocumentStatusLog
+        log = DocumentStatusLog(
+            document_id=document_id,
+            from_status=from_status,
+            to_status=to_status,
+            changed_by=user_id,
+        )
+        db.add(log)
+
+    async def _trigger_rag_indexing(
+        self,
+        document_id: int,
+        company_id: int,
+        db: AsyncSession,
+    ) -> None:
+        """Index the approved document in the RAG service."""
+        try:
+            from app.services.rag_service import rag_service
+
+            # Reload document with versions to get full_text
+            stmt = (
+                select(Document)
+                .where(Document.id == document_id, Document.company_id == company_id)
+                .options(selectinload(Document.versions))
+            )
+            result = await db.execute(stmt)
+            doc = result.scalar_one_or_none()
+            if not doc:
+                return
+
+            # Get latest version's full_text
+            latest_version = None
+            if doc.versions:
+                latest_version = max(doc.versions, key=lambda v: v.version_number)
+
+            if latest_version and latest_version.full_text:
+                chunks_count = await rag_service.index_document(
+                    document_id=document_id,
+                    company_id=company_id,
+                    title=doc.title,
+                    full_text=latest_version.full_text,
+                )
+                logger.info(
+                    f"RAG indexed {chunks_count} chunks for document {document_id}"
+                )
+            else:
+                logger.warning(
+                    f"No full_text found for document {document_id}, "
+                    "skipping RAG indexing"
+                )
+        except ImportError:
+            logger.warning("RAG service not available, skipping indexing")
+        except Exception as e:
+            logger.error(
+                f"RAG indexing failed for document {document_id}: {e}",
+                exc_info=True,
+            )
+            # Don't fail the update if RAG indexing fails
+
+    async def archive_document(self, id: int, company_id: int, db: AsyncSession) -> None:
+        """Archive a document by setting status to 'archived'."""
+        stmt = select(Document).where(
+            Document.id == id,
+            Document.company_id == company_id,
+        )
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        doc.status = DocumentStatus.ARCHIVED
+        await db.flush()
+
+    async def hard_delete_document(self, id: int, db: AsyncSession) -> None:
+        """Permanently delete a document and all related data from DB and storage.
+
+        This includes:
+        - All versions (and their files from storage)
+        - All terms, abbreviations, tables, sections
+        - All links (source and target)
+        - All order-document links
+        """
+        stmt = select(Document).where(Document.id == id)
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        # Delete version files from storage first
+        for version in doc.versions:
+            try:
+                await storage.delete(version.file_path)
+            except Exception:
+                pass  # Log but don't fail if file already missing
+
+        # Delete the document - ORM cascades will delete all related records
+        await db.delete(doc)
+        await db.flush()

@@ -20,13 +20,13 @@ export default function AdminRoute({ children }: AdminRouteProps) {
     )
   }
 
-  // Проверяем роль admin через holdings пользователя
+  // Проверяем роль admin через companies пользователя
   // Если пользователь не залогинен — редирект на логин
   if (!user) {
     return <Navigate to="/login" replace />
   }
 
-  const isAdmin = user.holdings?.some((h) => h.role === 'admin')
+  const isAdmin = user.companies?.some((h) => h.role === 'admin')
 
   if (!isAdmin) {
     return <Navigate to="/" replace />

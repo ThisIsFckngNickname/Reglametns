@@ -1,518 +1,291 @@
-"""
+﻿"""
 Generator service — orchestrates the full document generation pipeline.
 
 Pipeline:
-1. Load holding profile
-2. Load influencing documents from DB
-3. Load terms/abbreviations from knowledge base
-4. Extract text from draft files
-5. Build prompt (system + user)
-6. Call GigaChat
-7. Parse JSON response (with retries for malformed JSON)
-8. Build .docx
-9. Save as Document + DocumentVersion
-10. Return document details
+1. Load holding profile → generators.data_loader
+2. Load influencing documents → generators.data_loader
+3. Load terms/abbreviations → generators.data_loader
+4. Extract text from draft files → generators.text_extractor
+5. [NEW] Search RAG for relevant approved document chunks
+6. [NEW] Search web for topic information
+7. Build prompt → prompt_builder
+8. Call LLM → ollama_client
+9. Parse response → generators.response_handler
+10. Build .docx → docx_builder
+11. Save as Document + DocumentVersion → DocumentSaver
+12. Return document details
 """
 
 import json
 import logging
-import os
-import re
-import tempfile
-from datetime import datetime, timezone
-from io import BytesIO
 from typing import Optional
 
 from fastapi import UploadFile as FastAPIUploadFile
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.exceptions import BadRequestException
-from app.models.document import Document
-from app.models.document_abbreviation import DocumentAbbreviation
-from app.models.document_term import DocumentTerm
-from app.models.document_version import DocumentVersion
-from app.models.holding import Holding
 from app.models.user import User
 from app.schemas.document import DocumentResponse
+from app.services.document_saver_service import document_saver
 from app.services.docx_builder import docx_builder
-from app.services.gigachat_service import MOCK_RESPONSE
-from app.services.llm_client import LLMClient
+from app.services.generators.data_loader import data_loader
+from app.services.generators.text_extractor import text_extractor
+from app.services.generators.response_handler import response_handler
+from app.services.ollama_client import ollama_client
 from app.services.prompt_builder import prompt_builder
-from app.services.storage_service import storage
 
 logger = logging.getLogger(__name__)
+
+# Rough token estimation: ~2 chars per token for Russian text
+_CHARS_PER_TOKEN = 2
+_PARAGRAPH_SEP = "\n\n"
+
+
+def _estimate_tokens(text: str) -> int:
+    return len(text) // _CHARS_PER_TOKEN
+
+
+def _truncate_by_paragraphs(text: str, max_chars: int) -> str:
+    """Truncate text at paragraph boundary, keeping the HEAD."""
+    if not text:
+        return text
+    if len(text) <= max_chars:
+        return text
+
+    truncated = text[:max_chars]
+    last_boundary = truncated.rfind(_PARAGRAPH_SEP)
+    if last_boundary > max_chars // 2:
+        truncated = text[:last_boundary]
+    else:
+        last_newline = truncated.rfind("\n")
+        if last_newline > max_chars // 3:
+            truncated = text[:last_newline]
+
+    return truncated.rstrip() + "\n\n[Продолжение файла обрезано из-за ограничения длины...]"
+
+
+def _distribute_token_budget(
+    texts: list[tuple[str, str]],
+    total_budget_tokens: int,
+    system_padding_tokens: int = 3000,
+) -> list[str]:
+    """Distribute token budget across multiple file texts."""
+    if not texts:
+        return []
+
+    budget_chars = (total_budget_tokens - system_padding_tokens) * _CHARS_PER_TOKEN
+    if budget_chars <= 0:
+        return [""] * len(texts)
+
+    total_len = sum(len(t) for _, t in texts)
+    if total_len <= budget_chars:
+        return [t for _, t in texts]
+
+    result = []
+    for label, text in texts:
+        if total_len == 0:
+            result.append("")
+            continue
+        proportion = len(text) / total_len
+        file_budget = max(int(budget_chars * proportion), 500)
+
+        if len(text) <= file_budget:
+            result.append(text)
+        else:
+            truncated = _truncate_by_paragraphs(text, file_budget)
+            result.append(truncated)
+
+    return result
 
 
 class GeneratorService:
     """Orchestrates the full generation process."""
 
-    def __init__(self, llm_client: Optional[LLMClient] = None):
-        if llm_client:
-            self.llm = llm_client
-        elif settings.llm_provider == "ollama":
-            from app.services.ollama_client import ollama_client
+    def __init__(self, llm_client=None):
+        self._llm_client = llm_client or ollama_client
 
-            self.llm = ollama_client
-        elif settings.llm_provider == "gigachat":
-            from app.services.gigachat_service import gigachat_client
-
-            self.llm = gigachat_client
-        else:
-            # Fallback: try Ollama first, then GigaChat
-            try:
-                from app.services.ollama_client import ollama_client
-
-                self.llm = ollama_client
-            except Exception:
-                from app.services.gigachat_service import gigachat_client
-
-                self.llm = gigachat_client
+    @property
+    def llm(self):
+        """Lazy LLM client resolution."""
+        return self._llm_client
 
     async def generate(
         self,
         context_description: str,
         user: User,
-        holding_id: int,
+        company_id: int,
         draft_files: Optional[list[FastAPIUploadFile]] = None,
         influencing_document_ids: Optional[list[int]] = None,
         db: Optional[AsyncSession] = None,
     ) -> DocumentResponse:
-        """Full generation pipeline.
-
-        Args:
-            context_description: User description of what the document should regulate.
-            user: The requesting user.
-            holding_id: Active holding ID.
-            draft_files: Optional list of uploaded draft files.
-            influencing_document_ids: Optional list of document IDs that influence this document.
-            db: Database session (required for persistence).
-
-        Returns:
-            DocumentResponse with the generated document details.
-        """
-        # 1. Load holding profile
-        holding = await self._load_holding(holding_id, db)
+        """Full generation pipeline."""
+        # 1. Load company profile
+        company = await data_loader.load_company(company_id, db)
 
         # 2. Load influencing documents
-        influencing_docs = await self._load_influencing_documents(
-            influencing_document_ids, holding_id, db
+        influencing_docs = await data_loader.load_influencing_documents(
+            influencing_document_ids, company_id, db
         )
 
         # 3. Load terms/abbreviations from knowledge base
-        terms = await self._load_holding_terms(holding_id, db)
+        terms = await data_loader.load_company_terms(company_id, db)
 
         # 4. Extract text from draft files
-        drafts_content = await self._extract_draft_text(draft_files)
+        drafts_content = await text_extractor.extract_draft_text(draft_files)
 
-        # 5. Build prompt (with style patterns if available)
-        style_patterns_text = self._format_style_patterns_for_prompt(holding.style_settings)
+        # 5. Search RAG for relevant approved document chunks
+        rag_chunks = []
+        try:
+            from app.services.rag_service import rag_service
+            rag_chunks = await rag_service.search(
+                query=context_description,
+                company_id=company_id,
+                top_k=settings.rag_max_chunks,
+            )
+            logger.info(f"RAG search returned {len(rag_chunks)} chunks")
+        except Exception as e:
+            logger.warning(f"RAG search failed (will continue without): {e}")
+
+        # 6. Search web for topic information
+        web_results = []
+        if settings.web_search_enabled:
+            try:
+                from app.services.web_search_service import web_search_service
+                web_results = await web_search_service.search(context_description)
+                logger.info(f"Web search returned {len(web_results)} results")
+            except Exception as e:
+                logger.warning(f"Web search failed (will continue without): {e}")
+
+        # 7. Log diagnostics
+        logger.info(
+            "Generation diagnostics: "
+            f"context_len={len(context_description)}, "
+            f"draft_files={len(draft_files) if draft_files else 0}, "
+            f"drafts_chars={len(drafts_content)}, "
+            f"rag_chunks={len(rag_chunks)}, "
+            f"web_results={len(web_results)}, "
+            f"influencing_docs={len(influencing_docs)}, "
+            f"terms={len(terms)}"
+        )
+
+        # 8. Truncate large content proportionally
+        max_prompt = settings.generation_max_prompt_tokens
+
+        for doc in influencing_docs:
+            if "full_text" in doc:
+                doc["full_text"] = _truncate_by_paragraphs(
+                    doc["full_text"],
+                    max_chars=max_prompt * _CHARS_PER_TOKEN // 4,
+                )
+
+        if draft_files and drafts_content:
+            file_sections = []
+            current_file = []
+            current_label = "unknown"
+            for line in drafts_content.split("\n"):
+                if line.startswith("--- Файл:") and line.endswith(" ---"):
+                    if current_file:
+                        file_sections.append((current_label, "\n".join(current_file)))
+                    current_label = line
+                    current_file = []
+                else:
+                    current_file.append(line)
+            if current_file:
+                file_sections.append((current_label, "\n".join(current_file)))
+
+            if file_sections:
+                truncated_sections = _distribute_token_budget(
+                    file_sections, max_prompt, system_padding_tokens=5000
+                )
+                drafts_content = "\n".join(
+                    f"{label}\n{content}"
+                    for label, content in zip(
+                        [s[0] for s in file_sections], truncated_sections
+                    )
+                )
+
+        # 9. Build prompt with RAG and web context
+        style_patterns_text = response_handler.format_style_patterns_for_prompt(
+            company.style_settings
+        )
         messages = prompt_builder.build_messages(
-            holding=holding,
+            company=company,
             context_description=context_description,
             drafts_content=drafts_content,
             terms=terms,
             influencing_docs=influencing_docs,
             style_patterns=style_patterns_text,
+            rag_chunks=rag_chunks,
+            web_results=web_results,
         )
 
-        # 6. Call LLM
-        is_mock = self.llm.is_mock
-        try:
-            raw_response = await self.llm.chat_completion(messages)
-            # Re-check after call — OllamaClient may auto-switch to mock on connection failure
-            is_mock = self.llm.is_mock
-        except Exception as e:
-            logger.error(f"LLM generation failed: {e}", exc_info=True)
-            # Fallback to mock response on error
-            raw_response = json.dumps(MOCK_RESPONSE, ensure_ascii=False)
-            is_mock = True
+        # 10. Call LLM
+        raw_response = await self.llm.chat_completion(messages)
+        logger.info(f"LLM response received: {len(raw_response)} chars")
 
-        # 7. Parse JSON response
-        result = await self._parse_response(raw_response)
+        # 11. Parse JSON response
+        result = await response_handler.parse_response(raw_response)
+        result["generated_with_mock"] = False
 
-        # Add mock flag
-        if is_mock:
-            # Use context_description to generate a meaningful title instead of generic one
-            context_title = context_description.strip().strip('"').strip("'")[:100]
-            if context_title:
-                result["title"] = f"Документ: {context_title}"
-        result["generated_with_mock"] = is_mock
-
-        # 8. Build .docx
+        # 12. Build .docx
         doc_title = result.get("title", "Сгенерированный документ")
-        output_path = self._get_output_path(holding_id, doc_title)
-        docx_builder.build(result, holding, output_path)
+        output_path = response_handler.get_output_path(company_id, doc_title)
+        docx_builder.build(result, company, output_path)
 
-        # 9. Save as Document + DocumentVersion
-        document = Document(
-            holding_id=holding_id,
-            title=doc_title,
+        # 13. Save as Document + DocumentVersion
+        return await document_saver.save_generated_document(
+            company_id=company_id,
+            doc_title=doc_title,
             description=result.get("description", ""),
-            status="draft",
-            created_by=user.id,
-        )
-        db.add(document)
-        await db.flush()
-
-        # Read file content for storage
-        with open(output_path, "rb") as f:
-            file_content = f.read()
-
-        # Save to storage
-        fake_file = FastAPIUploadFile(
-            filename=os.path.basename(output_path),
-            file=BytesIO(file_content),
-        )
-        rel_path = await storage.save(fake_file, holding_id, document.id, 1)
-
-        # Create DocumentVersion
-        version = DocumentVersion(
-            document_id=document.id,
-            version_number=1,
-            file_path=rel_path,
-            file_type="docx",
-            file_size=len(file_content),
-            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            uploaded_by=user.id,
-        )
-        db.add(version)
-
-        # Save terms
-        for term_item in result.get("terms", []):
-            term = DocumentTerm(
-                document_id=document.id,
-                term=term_item.get("term", ""),
-                definition=term_item.get("definition", ""),
-            )
-            db.add(term)
-
-        # Save abbreviations
-        for abbr_item in result.get("abbreviations", []):
-            abbr = DocumentAbbreviation(
-                document_id=document.id,
-                abbreviation=abbr_item.get("abbreviation", ""),
-                full_form=abbr_item.get("full_form", ""),
-            )
-            db.add(abbr)
-
-        await db.flush()
-
-        current_version_brief = {
-            "id": version.id,
-            "version_number": version.version_number,
-            "file_type": version.file_type,
-            "file_size": version.file_size,
-            "created_at": version.created_at.isoformat(),
-        }
-
-        return DocumentResponse(
-            id=document.id,
-            holding_id=holding_id,
-            title=doc_title,
-            description=result.get("description", ""),
-            status="draft",
-            current_version=current_version_brief,
-            created_by={"id": user.id, "email": user.email},
-            created_at=document.created_at,
-            updated_at=document.updated_at,
-            stats={
-                "versions_count": 1,
-                "sections_count": len(result.get("sections", [])),
-                "tables_count": 0,
-                "terms_count": len(result.get("terms", [])),
-                "abbreviations_count": len(result.get("abbreviations", [])),
-            },
+            output_path=output_path,
+            sections_count=len(result.get("sections", [])),
+            terms=result.get("terms", []),
+            abbreviations=result.get("abbreviations", []),
+            user=user,
+            db=db,
         )
 
-    async def _load_holding(self, holding_id: int, db: AsyncSession) -> Holding:
-        """Load holding profile by ID."""
-        stmt = select(Holding).where(Holding.id == holding_id)
-        result = await db.execute(stmt)
-        holding = result.scalar_one_or_none()
-        if holding is None:
-            raise BadRequestException(
-                code="HOLDING_NOT_FOUND",
-                message="Холдинг не найден",
-                field="holding_id",
-            )
-        return holding
-
-    async def _load_influencing_documents(
+    async def generate_mock(
         self,
-        document_ids: Optional[list[int]],
-        holding_id: int,
+        user: User,
+        company_id: int,
         db: AsyncSession,
-    ) -> list[dict]:
-        """Load influencing documents from DB by IDs."""
-        if not document_ids:
-            return []
+    ) -> DocumentResponse:
+        """Generate a document using mock data (no LLM)."""
+        mock_result = response_handler.get_mock_response()
+        mock_result["generated_with_mock"] = True
 
-        from app.models.document import Document as DocModel
+        company = await data_loader.load_company(company_id, db)
 
-        docs = []
-        for doc_id in document_ids:
-            stmt = select(DocModel).where(
-                DocModel.id == doc_id,
-                DocModel.holding_id == holding_id,
-            )
-            result = await db.execute(stmt)
-            doc = result.scalar_one_or_none()
-            if doc:
-                docs.append({
-                    "title": doc.title,
-                    "source": f"Внутренний документ х. {holding_id}",
-                })
-        return docs
+        doc_title = mock_result.get("title", "Сгенерированный документ (демо-режим)")
+        output_path = response_handler.get_output_path(company_id, doc_title)
+        docx_builder.build(mock_result, company, output_path)
 
-    async def _load_holding_terms(
-        self,
-        holding_id: int,
-        db: AsyncSession,
-    ) -> list[dict]:
-        """Load terms and definitions from all documents in the holding."""
-        from app.models.document import Document as DocModel
-
-        # Get all document IDs for this holding
-        doc_stmt = select(DocModel.id).where(DocModel.holding_id == holding_id)
-        doc_result = await db.execute(doc_stmt)
-        doc_ids = [row[0] for row in doc_result.fetchall()]
-
-        if not doc_ids:
-            return []
-
-        # Load all terms
-        term_stmt = select(DocumentTerm).where(
-            DocumentTerm.document_id.in_(doc_ids)
+        return await document_saver.save_generated_document(
+            company_id=company_id,
+            doc_title=doc_title,
+            description=mock_result.get("description", ""),
+            output_path=output_path,
+            sections_count=len(mock_result.get("sections", [])),
+            terms=mock_result.get("terms", []),
+            abbreviations=mock_result.get("abbreviations", []),
+            user=user,
+            db=db,
         )
-        term_result = await db.execute(term_stmt)
-        terms = term_result.scalars().all()
 
-        # Deduplicate
-        seen = set()
-        result = []
-        for t in terms:
-            key = t.term.lower().strip()
-            if key not in seen:
-                seen.add(key)
-                result.append({"term": t.term, "definition": t.definition})
-        return result
+    # ── Backward-compatible private method delegates ─────────────────
+
+    async def _parse_response(self, raw_response: str) -> dict:
+        return await response_handler.parse_response(raw_response)
+
+    def _format_style_patterns_for_prompt(self, style_settings: Optional[dict]) -> str:
+        return response_handler.format_style_patterns_for_prompt(style_settings)
 
     async def _extract_draft_text(
         self,
         files: Optional[list[FastAPIUploadFile]],
     ) -> str:
-        """Extract text from uploaded draft files (docx/pdf)."""
-        if not files:
-            return ""
-
-        texts = []
-        for file in files:
-            content = await file.read()
-            filename = file.filename or "draft"
-            ext = os.path.splitext(filename)[1].lower()
-
-            if ext == ".docx":
-                text = self._extract_docx_text(content)
-            elif ext == ".pdf":
-                text = self._extract_pdf_text(content)
-            else:
-                text = content.decode("utf-8", errors="ignore")
-
-            if text:
-                header = f"\n--- Содержимое файла: {filename} ---\n"
-                texts.append(header + text)
-
-        return "\n".join(texts)
-
-    def _extract_docx_text(self, content: bytes) -> str:
-        """Extract text from .docx content bytes."""
-        try:
-            from docx import Document as DocxDocument
-
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
-                tmp.write(content)
-                tmp_path = tmp.name
-
-            try:
-                doc = DocxDocument(tmp_path)
-                paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-                return "\n".join(paragraphs)
-            finally:
-                os.unlink(tmp_path)
-        except Exception as e:
-            logger.warning(f"Failed to extract docx text: {e}")
-            return ""
-
-    def _extract_pdf_text(self, content: bytes) -> str:
-        """Extract text from PDF content bytes."""
-        try:
-            import fitz  # PyMuPDF
-
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp.write(content)
-                tmp_path = tmp.name
-
-            try:
-                doc = fitz.open(tmp_path)
-                texts = []
-                for page in doc:
-                    texts.append(page.get_text())
-                doc.close()
-                return "\n".join(texts)
-            finally:
-                os.unlink(tmp_path)
-        except Exception as e:
-            logger.warning(f"Failed to extract PDF text: {e}")
-            return ""
-
-    async def _parse_response(self, raw_response: str) -> dict:
-        """Parse GigaChat JSON response, with fallback for malformed JSON.
-
-        Strategy:
-        1. Try json.loads() directly
-        2. If fails, try to extract JSON from markdown code block (```json ... ```)
-        3. If still fails, raise BadRequestException
-        """
-        if not raw_response or not raw_response.strip():
-            logger.warning("Empty response from GigaChat, using mock")
-            return dict(MOCK_RESPONSE)
-
-        # Strategy 1: Direct parse
-        try:
-            return json.loads(raw_response)
-        except json.JSONDecodeError:
-            pass
-
-        # Strategy 2: Extract from markdown code block
-        json_match = re.search(
-            r"```(?:json)?\s*([\s\S]*?)```", raw_response, re.IGNORECASE
-        )
-        if json_match:
-            extracted = json_match.group(1).strip()
-            try:
-                return json.loads(extracted)
-            except json.JSONDecodeError:
-                pass
-
-        # Strategy 3: Try to find JSON-like structure in the text
-        json_match = re.search(r"(\{[\s\S]*\})", raw_response)
-        if json_match:
-            try:
-                return json.loads(json_match.group(1))
-            except json.JSONDecodeError:
-                pass
-
-        logger.error(f"Failed to parse GigaChat response as JSON: {raw_response[:500]}")
-        raise BadRequestException(
-            code="GENERATION_FAILED",
-            message="Не удалось обработать ответ от GigaChat. Попробуйте снова.",
-        )
-
-    def _format_style_patterns_for_prompt(self, style_settings: Optional[dict]) -> str:
-        """Format style settings into prompt-friendly string."""
-        if not style_settings or not isinstance(style_settings, dict):
-            return ""
-
-        lines = []
-        typical_phrases = style_settings.get("typical_phrases", [])
-        if typical_phrases and isinstance(typical_phrases, list):
-            phrases_str = "; ".join(f"«{p}…»" for p in typical_phrases[:5])
-            lines.append(f"Типичные фразы: {phrases_str}")
-
-        avg_len = style_settings.get("avg_sentence_length")
-        if avg_len:
-            lines.append(f"Средняя длина предложения: ~{avg_len} слов.")
-
-        return " | ".join(lines)
-
-    def _get_output_path(self, holding_id: int, title: str) -> str:
-        """Generate output path for the generated .docx file.
-
-        Returns a path in the system temp directory.
-        """
-        safe_title = re.sub(r"[^\w\s-]", "", title).strip()[:50]
-        safe_title = safe_title.replace(" ", "_")
-        timestamp = int(datetime.now(timezone.utc).timestamp())
-        filename = f"generated_{holding_id}_{safe_title}_{timestamp}.docx"
-        output_dir = os.path.join(tempfile.gettempdir(), "srp_generated")
-        os.makedirs(output_dir, exist_ok=True)
-        return os.path.join(output_dir, filename)
-
-    async def generate_mock(
-        self,
-        user: User,
-        holding_id: int,
-        db: AsyncSession,
-    ) -> DocumentResponse:
-        """Generate a document using mock data (no GigaChat)."""
-        mock_result = dict(MOCK_RESPONSE)
-        mock_result["generated_with_mock"] = True
-
-        holding = await self._load_holding(holding_id, db)
-
-        doc_title = mock_result.get("title", "Сгенерированный документ (демо-режим)")
-        output_path = self._get_output_path(holding_id, doc_title)
-        docx_builder.build(mock_result, holding, output_path)
-
-        document = Document(
-            holding_id=holding_id,
-            title=doc_title,
-            description=mock_result.get("description", ""),
-            status="draft",
-            created_by=user.id,
-        )
-        db.add(document)
-        await db.flush()
-
-        with open(output_path, "rb") as f:
-            file_content = f.read()
-
-        fake_file = FastAPIUploadFile(
-            filename=os.path.basename(output_path),
-            file=BytesIO(file_content),
-        )
-        rel_path = await storage.save(fake_file, holding_id, document.id, 1)
-
-        version = DocumentVersion(
-            document_id=document.id,
-            version_number=1,
-            file_path=rel_path,
-            file_type="docx",
-            file_size=len(file_content),
-            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            uploaded_by=user.id,
-        )
-        db.add(version)
-        await db.flush()
-
-        current_version_brief = {
-            "id": version.id,
-            "version_number": version.version_number,
-            "file_type": version.file_type,
-            "file_size": version.file_size,
-            "created_at": version.created_at.isoformat(),
-        }
-
-        return DocumentResponse(
-            id=document.id,
-            holding_id=holding_id,
-            title=doc_title,
-            description=mock_result.get("description", ""),
-            status="draft",
-            current_version=current_version_brief,
-            created_by={"id": user.id, "email": user.email},
-            created_at=document.created_at,
-            updated_at=document.updated_at,
-            stats={
-                "versions_count": 1,
-                "sections_count": len(mock_result.get("sections", [])),
-                "tables_count": 0,
-                "terms_count": len(mock_result.get("terms", [])),
-                "abbreviations_count": len(mock_result.get("abbreviations", [])),
-            },
-        )
+        return await text_extractor.extract_draft_text(files)
 
 
 # Singleton

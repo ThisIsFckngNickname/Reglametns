@@ -11,7 +11,7 @@ import { useAuthStore } from './store/authStore'
 import { getCurrentUser } from './api/auth'
 import ErrorBoundary from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
-import HoldingRequired from './components/HoldingRequired'
+import CompanyRequired from './components/CompanyRequired'
 import AdminRoute from './components/AdminRoute'
 import AppLayout from './components/AppLayout'
 
@@ -19,19 +19,14 @@ import AppLayout from './components/AppLayout'
 import RegisterPage from './pages/RegisterPage'
 import LoginPage from './pages/LoginPage'
 import ProfilePage from './pages/ProfilePage'
-import AdminHoldingsPage from './pages/AdminHoldingsPage'
+import AdminCompaniesPage from './pages/AdminCompaniesPage'
 import DashboardPage from './pages/DashboardPage'
 import NotFoundPage from './pages/NotFoundPage'
 import DocumentsListPage from './pages/DocumentsListPage'
 import DocumentUploadPage from './pages/DocumentUploadPage'
 import DocumentDetailPage from './pages/DocumentDetailPage'
 import GeneratorPage from './pages/GeneratorPage'
-import OrdersListPage from './pages/OrdersListPage'
-import OrderUploadPage from './pages/OrderUploadPage'
-import OrderDetailPage from './pages/OrderDetailPage'
-import LegislationSearchPage from './pages/LegislationSearchPage'
-import LegislationSourcesPage from './pages/LegislationSourcesPage'
-import HoldingProfilePage from './pages/HoldingProfilePage'
+import CompanyProfilePage from './pages/CompanyProfilePage'
 import AdminUsersPage from './pages/AdminUsersPage'
 
 export default function App() {
@@ -92,10 +87,10 @@ export default function App() {
           >
             <Route path="/profile" element={<ProfilePage />} />
             <Route
-              path="/admin/holdings"
+              path="/admin/companies"
               element={
                 <AdminRoute>
-                  <AdminHoldingsPage />
+                  <AdminCompaniesPage />
                 </AdminRoute>
               }
             />
@@ -110,95 +105,51 @@ export default function App() {
             <Route
               path="/"
               element={
-                <HoldingRequired>
+                <CompanyRequired>
                   <DashboardPage />
-                </HoldingRequired>
+                </CompanyRequired>
               }
             />
             <Route
               path="/documents"
               element={
-                <HoldingRequired>
+                <CompanyRequired>
                   <DocumentsListPage />
-                </HoldingRequired>
+                </CompanyRequired>
               }
             />
             <Route
               path="/documents/upload"
               element={
-                <HoldingRequired>
+                <CompanyRequired>
                   <DocumentUploadPage />
-                </HoldingRequired>
+                </CompanyRequired>
               }
             />
             <Route
               path="/documents/:id"
               element={
-                <HoldingRequired>
+                <CompanyRequired>
                   <ErrorBoundary title="Ошибка загрузки документа">
                     <DocumentDetailPage />
                   </ErrorBoundary>
-                </HoldingRequired>
+                </CompanyRequired>
               }
             />
             <Route
               path="/generator"
               element={
-                <HoldingRequired>
+                <CompanyRequired>
                   <GeneratorPage />
-                </HoldingRequired>
+                </CompanyRequired>
               }
             />
             <Route
-              path="/orders"
+              path="/companies/:id/profile"
               element={
-                <HoldingRequired>
-                  <OrdersListPage />
-                </HoldingRequired>
-              }
-            />
-            <Route
-              path="/orders/upload"
-              element={
-                <HoldingRequired>
-                  <OrderUploadPage />
-                </HoldingRequired>
-              }
-            />
-            <Route
-              path="/orders/:id"
-              element={
-                <HoldingRequired>
-                  <ErrorBoundary title="Ошибка загрузки приказа">
-                    <OrderDetailPage />
-                  </ErrorBoundary>
-                </HoldingRequired>
-              }
-            />
-            <Route
-              path="/legislation"
-              element={
-                <HoldingRequired>
-                  <ErrorBoundary title="Ошибка поиска">
-                    <LegislationSearchPage />
-                  </ErrorBoundary>
-                </HoldingRequired>
-              }
-            />
-            <Route
-              path="/legislation-sources"
-              element={
-                <HoldingRequired>
-                  <LegislationSourcesPage />
-                </HoldingRequired>
-              }
-            />
-            <Route
-              path="/holdings/:id/profile"
-              element={
-                <HoldingRequired>
-                  <HoldingProfilePage />
-                </HoldingRequired>
+                <CompanyRequired>
+                  <CompanyProfilePage />
+                </CompanyRequired>
               }
             />
           </Route>

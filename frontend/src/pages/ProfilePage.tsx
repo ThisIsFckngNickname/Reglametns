@@ -12,18 +12,18 @@ import {
 } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { getCurrentUser } from '../api/auth'
-import { getHoldings, setActiveHolding } from '../api/holdings'
+import { getCompanies, setActiveCompany } from '../api/companies'
 import { getApiErrorMessage } from '../api/client'
 import { useAuthStore } from '../store/authStore'
-import type { Holding } from '../types'
+import type { Company } from '../types'
 
 const { Title, Text } = Typography
 
 export default function ProfilePage() {
   const navigate = useNavigate()
   const { user, updateUser } = useAuthStore()
-  const [holdings, setHoldings] = useState<Holding[]>([])
-  const [selectedHoldingId, setSelectedHoldingId] = useState<number | null>(null)
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -37,19 +37,19 @@ export default function ProfilePage() {
     setLoading(true)
     setError(null)
     try {
-      const [holdingsData, userData] = await Promise.all([
-        getHoldings(),
+      const [companiesData, userData] = await Promise.all([
+        getCompanies(),
         getCurrentUser(),
       ])
       updateUser(userData)
       
-      // Показываем только те холдинги, в которых пользователь состоит
-      const userHoldingIds = new Set(userData.holdings?.map(h => h.holding_id) ?? [])
-      const filtered = holdingsData.filter(h => userHoldingIds.has(h.id))
-      setHoldings(filtered)
+      // Показываем только те компании, в которых пользователь состоит
+      const userCompanyIds = new Set(userData.companies?.map(h => h.company_id) ?? [])
+      const filtered = companiesData.filter(h => userCompanyIds.has(h.id))
+      setCompanies(filtered)
       
-      if (userData.active_holding) {
-        setSelectedHoldingId(userData.active_holding.id)
+      if (userData.active_company) {
+        setSelectedCompanyId(userData.active_company.id)
       }
     } catch (err) {
       setError(getApiErrorMessage(err))
@@ -58,22 +58,22 @@ export default function ProfilePage() {
     }
   }
 
-  const handleSelectHolding = async (holdingId: number) => {
+  const handleSelectCompany = async (companyId: number) => {
     setSaving(true)
     setError(null)
     setSuccess(false)
 
     try {
-      const result = await setActiveHolding({ holding_id: holdingId })
+      const result = await setActiveCompany({ company_id: companyId })
       updateUser({
-        active_holding: {
-          id: holdingId,
-          name: result.active_holding.name,
+        active_company: {
+          id: companyId,
+          name: result.active_company.name,
           inn: null,
           legal_form: '',
         },
       })
-      setSelectedHoldingId(holdingId)
+      setSelectedCompanyId(companyId)
       setSuccess(true)
 
       // Navigate to dashboard after selection
@@ -95,8 +95,8 @@ export default function ProfilePage() {
     )
   }
 
-  const userHoldingLabel = (holding: Holding) =>
-    `${holding.legal_form} "${holding.name}"${holding.inn ? ` ИНН: ${holding.inn}` : ''}`
+  const userCompanyLabel = (company: Company) =>
+    `${company.legal_form} "${company.name}"${company.inn ? ` ИНН: ${company.inn}` : ''}`
 
   return (
     <div style={{ maxWidth: 600, margin: '0 auto', paddingTop: 40 }}>
@@ -113,23 +113,23 @@ export default function ProfilePage() {
                 <Tag color="orange">Не подтверждён</Tag>
               )}
             </Descriptions.Item>
-            <Descriptions.Item label="Текущий холдинг">
-              {user?.active_holding ? (
+            <Descriptions.Item label="Текущая компания">
+              {user?.active_company ? (
                 <Text strong>
-                  {user.active_holding.legal_form} &quot;{user.active_holding.name}
+                  {user.active_company.legal_form} &quot;{user.active_company.name}
                   &quot;
-                  {user.active_holding.inn && ` ИНН: ${user.active_holding.inn}`}
+                  {user.active_company.inn && ` ИНН: ${user.active_company.inn}`}
                 </Text>
               ) : (
-                <Text type="secondary">Не выбран</Text>
+                <Text type="secondary">Не выбрана</Text>
               )}
             </Descriptions.Item>
           </Descriptions>
 
           <div>
-            <Title level={5}>Выбор холдинга</Title>
+            <Title level={5}>Выбор компании</Title>
             <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-              Выберите холдинг для работы с документами
+              Выберите компанию для работы с документами
             </Text>
 
             {error && (
@@ -146,8 +146,8 @@ export default function ProfilePage() {
 
             {success && (
               <Alert
-                message="Холдинг выбран"
-                description="Холдинг успешно установлен. Перенаправляем на дашборд..."
+                message="Компания выбрана"
+                description="Компания успешно установлена. Перенаправляем на дашборд..."
                 type="success"
                 showIcon
                 style={{ marginBottom: 12 }}
@@ -157,13 +157,13 @@ export default function ProfilePage() {
             <Space direction="vertical" style={{ width: '100%' }}>
               <Select
                 style={{ width: '100%' }}
-                placeholder="Выберите холдинг"
+                placeholder="Выберите компанию"
                 loading={loading}
-                value={selectedHoldingId}
-                onChange={setSelectedHoldingId}
-                options={holdings.map((h) => ({
+                value={selectedCompanyId}
+                onChange={setSelectedCompanyId}
+                options={companies.map((h) => ({
                   value: h.id,
-                  label: userHoldingLabel(h),
+                  label: userCompanyLabel(h),
                 }))}
                 showSearch
                 optionFilterProp="label"
@@ -174,10 +174,10 @@ export default function ProfilePage() {
                 block
                 size="large"
                 loading={saving}
-                disabled={!selectedHoldingId || selectedHoldingId === user?.active_holding?.id}
-                onClick={() => selectedHoldingId && handleSelectHolding(selectedHoldingId)}
+                disabled={!selectedCompanyId || selectedCompanyId === user?.active_company?.id}
+                onClick={() => selectedCompanyId && handleSelectCompany(selectedCompanyId)}
               >
-                {user?.active_holding ? 'Сменить холдинг' : 'Выбрать холдинг'}
+                {user?.active_company ? 'Сменить компанию' : 'Выбрать компанию'}
               </Button>
             </Space>
           </div>

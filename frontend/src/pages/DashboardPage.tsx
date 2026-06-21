@@ -9,8 +9,8 @@ export default function DashboardPage() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
 
-  const holdingName = user?.active_holding
-    ? `${user.active_holding.legal_form} "${user.active_holding.name}"`
+  const companyName = user?.active_company
+    ? `${user.active_company.legal_form} "${user.active_company.name}"`
     : ''
 
   return (
@@ -20,7 +20,7 @@ export default function DashboardPage() {
           <div>
             <Title level={3}>Дашборд</Title>
             <Text type="secondary">
-              Холдинг: <Text strong>{holdingName}</Text>
+              Компания: <Text strong>{companyName}</Text>
             </Text>
           </div>
 

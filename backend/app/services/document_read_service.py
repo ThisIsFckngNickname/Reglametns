@@ -1,0 +1,345 @@
+"""
+Document read service — query and retrieval operations.
+"""
+
+import logging
+from typing import List, Optional
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.exceptions import NotFoundException
+from app.models.document import Document
+from app.models.document_section import DocumentSection
+from app.models.document_version import DocumentVersion
+from app.schemas.document import (
+    DocumentListItem,
+    DocumentResponse,
+    PaginatedResponse,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class DocumentReadService:
+    """Read-only document queries."""
+
+    async def list_documents(
+        self,
+        company_id: int,
+        status: Optional[str],
+        search: Optional[str],
+        page: int,
+        page_size: int,
+        db: AsyncSession,
+    ) -> PaginatedResponse[DocumentListItem]:
+        """List documents with pagination and optional filtering."""
+        base_query = select(Document).where(Document.company_id == company_id)
+
+        if status:
+            base_query = base_query.where(Document.status == status)
+
+        if search:
+            pattern = f"%{search}%"
+            base_query = base_query.where(
+                Document.title.ilike(pattern)
+                | Document.description.ilike(pattern)
+            )
+
+        # Count
+        count_query = select(func.count()).select_from(base_query.subquery())
+        count_result = await db.execute(count_query)
+        total = count_result.scalar() or 0
+
+        # Paginate
+        offset = (page - 1) * page_size
+        query = (
+            base_query
+            .order_by(Document.updated_at.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
+        result = await db.execute(query)
+        documents = result.scalars().all()
+
+        items = []
+        for doc in documents:
+            latest_ver = (
+                await db.execute(
+                    select(DocumentVersion)
+                    .where(DocumentVersion.document_id == doc.id)
+                    .order_by(DocumentVersion.version_number.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+
+            items.append(DocumentListItem(
+                id=doc.id,
+                title=doc.title,
+                description=doc.description,
+                status=doc.status,
+                created_at=doc.created_at,
+                updated_at=doc.updated_at,
+                file_type=latest_ver.file_type if latest_ver else None,
+                file_size=latest_ver.file_size if latest_ver else None,
+                version_number=latest_ver.version_number if latest_ver else None,
+            ))
+
+        pages = max(1, (total + page_size - 1) // page_size)
+
+        return PaginatedResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            pages=pages,
+        )
+
+    async def get_document(self, id: int, company_id: int, db: AsyncSession) -> DocumentResponse:
+        """Get a single document with all metadata."""
+        stmt = (
+            select(Document)
+            .where(Document.id == id, Document.company_id == company_id)
+            .options(
+                selectinload(Document.versions)
+                .selectinload(DocumentVersion.sections),
+                selectinload(Document.versions)
+                .selectinload(DocumentVersion.tables),
+                selectinload(Document.terms),
+                selectinload(Document.abbreviations),
+                selectinload(Document.creator),
+            )
+        )
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        # Compute stats
+        versions_count = len(doc.versions)
+        sections_count = 0
+        tables_count = 0
+        for v in doc.versions:
+            sections_count += len(v.sections)
+            tables_count += len(v.tables)
+
+        # Find the latest version (highest version_number)
+        latest_version = None
+        if doc.versions:
+            latest_version = max(doc.versions, key=lambda v: v.version_number)
+
+        # Build creator info
+        creator_info = None
+        if doc.creator:
+            creator_info = {"id": doc.creator.id, "email": doc.creator.email}
+
+        # Build current_version brief
+        current_version_brief = None
+        if latest_version:
+            current_version_brief = {
+                "id": latest_version.id,
+                "version_number": latest_version.version_number,
+                "file_type": latest_version.file_type,
+                "file_size": latest_version.file_size,
+                "created_at": latest_version.created_at,
+            }
+
+        return DocumentResponse(
+            id=doc.id,
+            company_id=doc.company_id,
+            title=doc.title,
+            description=doc.description,
+            status=doc.status,
+            created_by=creator_info,
+            current_version=current_version_brief,
+            stats={
+                "sections_count": sections_count,
+                "tables_count": tables_count,
+                "terms_count": len(doc.terms),
+                "abbreviations_count": len(doc.abbreviations),
+                "versions_count": versions_count,
+            },
+            created_at=doc.created_at,
+            updated_at=doc.updated_at,
+        )
+
+    async def get_versions(
+        self, document_id: int, company_id: int, db: AsyncSession
+    ) -> List[dict]:
+        """Get all versions of a document."""
+        # Verify ownership
+        stmt = select(Document).where(
+            Document.id == document_id,
+            Document.company_id == company_id,
+        )
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        ver_stmt = (
+            select(DocumentVersion)
+            .where(DocumentVersion.document_id == document_id)
+            .order_by(DocumentVersion.version_number.desc())
+        )
+        ver_result = await db.execute(ver_stmt)
+        versions = ver_result.scalars().all()
+
+        return [
+            {
+                "id": v.id,
+                "document_id": v.document_id,
+                "version_number": v.version_number,
+                "file_type": v.file_type,
+                "file_size": v.file_size,
+                "mime_type": v.mime_type,
+                "version_notes": v.version_notes,
+                "uploaded_by": v.uploaded_by,
+                "created_at": v.created_at,
+            }
+            for v in versions
+        ]
+
+    async def get_sections_tree(
+        self, document_id: int, company_id: int, db: AsyncSession
+    ) -> List[dict]:
+        """Get sections as a tree structure from the latest version."""
+        # Verify ownership
+        stmt = select(Document).where(
+            Document.id == document_id,
+            Document.company_id == company_id,
+        )
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        # Latest version
+        ver_stmt = (
+            select(DocumentVersion)
+            .where(DocumentVersion.document_id == document_id)
+            .order_by(DocumentVersion.version_number.desc())
+            .limit(1)
+        )
+        ver_result = await db.execute(ver_stmt)
+        version = ver_result.scalar_one_or_none()
+
+        if version is None:
+            return []
+
+        sections_stmt = (
+            select(DocumentSection)
+            .where(DocumentSection.document_version_id == version.id)
+            .order_by(DocumentSection.order_num)
+        )
+        sections_result = await db.execute(sections_stmt)
+        sections = sections_result.scalars().all()
+
+        return self._build_section_tree(list(sections))
+
+    def _build_section_tree(
+        self, sections: List[DocumentSection], parent_id: Optional[int] = None
+    ) -> List[dict]:
+        """Recursively build a section tree."""
+        tree = []
+        for section in sections:
+            if section.parent_id == parent_id:
+                children = self._build_section_tree(sections, section.id)
+                tree.append({
+                    "id": section.id,
+                    "document_version_id": section.document_version_id,
+                    "parent_id": section.parent_id,
+                    "title": section.title,
+                    "level": section.level,
+                    "order_num": section.order_num,
+                    "content": section.content,
+                    "children": children,
+                })
+        return tree
+
+    async def get_terms(
+        self, document_id: int, company_id: int, db: AsyncSession
+    ) -> List[dict]:
+        """Get all terms for a document."""
+        stmt = select(Document).where(
+            Document.id == document_id,
+            Document.company_id == company_id,
+        )
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        return [
+            {"id": t.id, "document_id": t.document_id, "term": t.term, "definition": t.definition}
+            for t in doc.terms
+        ]
+
+    async def get_abbreviations(
+        self, document_id: int, company_id: int, db: AsyncSession
+    ) -> List[dict]:
+        """Get all abbreviations for a document."""
+        stmt = select(Document).where(
+            Document.id == document_id,
+            Document.company_id == company_id,
+        )
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        return [
+            {
+                "id": a.id,
+                "document_id": a.document_id,
+                "abbreviation": a.abbreviation,
+                "full_form": a.full_form,
+            }
+            for a in doc.abbreviations
+        ]
+
+    async def get_tables(
+        self, document_id: int, company_id: int, db: AsyncSession
+    ) -> List[dict]:
+        """Get all tables from the latest version of a document."""
+        stmt = select(Document).where(
+            Document.id == document_id,
+            Document.company_id == company_id,
+        )
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        ver_stmt = (
+            select(DocumentVersion)
+            .where(DocumentVersion.document_id == document_id)
+            .order_by(DocumentVersion.version_number.desc())
+            .limit(1)
+        )
+        ver_result = await db.execute(ver_stmt)
+        version = ver_result.scalar_one_or_none()
+
+        if version is None:
+            return []
+
+        return [
+            {
+                "id": t.id,
+                "document_version_id": t.document_version_id,
+                "section_id": t.section_id,
+                "caption": t.caption,
+                "order_num": t.order_num,
+                "html_content": t.html_content,
+                "rows_count": t.rows_count,
+                "cols_count": t.cols_count,
+            }
+            for t in version.tables
+        ]

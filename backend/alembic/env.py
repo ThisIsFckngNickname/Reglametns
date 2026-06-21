@@ -9,10 +9,10 @@ from app.config import settings
 from app.database import Base
 
 # Import all models so Alembic can detect them
-from app.models import (
+from app.models import (  # noqa: F401
     User,
-    Holding,
-    UserHolding,
+    Company,
+    UserCompany,
     VerificationCode,
     Document,
     DocumentVersion,
@@ -22,9 +22,7 @@ from app.models import (
     DocumentAbbreviation,
     DocumentLink,
     DocumentStatusLog,
-    Order,
-    OrderDocumentLink,
-)  # noqa: F401
+)
 
 # Alembic Config object
 config = context.config

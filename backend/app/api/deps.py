@@ -10,7 +10,7 @@ from app.core.rate_limiter import RateLimiter
 from app.core.security import decode_token
 from app.database import get_db
 from app.models.user import User
-from app.models.user_holding import UserHolding
+from app.models.user_company import UserCompany
 from app.services.auth_service import AuthService
 
 security_scheme = HTTPBearer(auto_error=False)
@@ -58,10 +58,10 @@ async def require_admin(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Dependency that checks if the user has admin role in any holding."""
-    stmt = select(UserHolding).where(
-        UserHolding.user_id == user.id,
-        UserHolding.role == "admin",
+    """Dependency that checks if the user has admin role in any company."""
+    stmt = select(UserCompany).where(
+        UserCompany.user_id == user.id,
+        UserCompany.role == "admin",
     ).limit(1)
     result = await db.execute(stmt)
     admin_entry = result.scalar_one_or_none()
@@ -82,11 +82,11 @@ async def get_auth_service(
     yield service
 
 
-async def require_active_holding(
+async def require_active_company(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """Check that user has an active holding selected."""
-    if not current_user.active_holding_id:
-        from app.core.exceptions import NoActiveHolding
-        raise NoActiveHolding()
+    """Check that user has an active company selected."""
+    if not current_user.active_company_id:
+        from app.core.exceptions import NoActiveCompany
+        raise NoActiveCompany()
     return current_user

@@ -18,7 +18,7 @@ from app.schemas.auth import (
     LoginResponse,
     TokenResponse,
 )
-from app.schemas.holding import HoldingBrief
+from app.schemas.company import CompanyBrief
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
 
@@ -150,35 +150,35 @@ async def get_me(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get current user's profile with holdings."""
-    from app.models.holding import Holding
-    from app.models.user_holding import UserHolding
-    from app.schemas.user import UserHoldingInfo
+    """Get current user's profile with companies."""
+    from app.models.company import Company
+    from app.models.user_company import UserCompany
+    from app.schemas.user import UserCompanyInfo
 
-    active_holding = None
-    if user.active_holding:
-        active_holding = HoldingBrief.model_validate(user.active_holding)
+    active_company = None
+    if user.active_company:
+        active_company = CompanyBrief.model_validate(user.active_company)
 
-    # Load user's holdings with roles
+    # Load user's companies with roles
     stmt = (
-        select(UserHolding, Holding.name)
-        .join(Holding, UserHolding.holding_id == Holding.id)
-        .where(UserHolding.user_id == user.id)
+        select(UserCompany, Company.name)
+        .join(Company, UserCompany.company_id == Company.id)
+        .where(UserCompany.user_id == user.id)
     )
     result = await db.execute(stmt)
-    holdings = []
+    companies = []
     for row in result:
-        uh, holding_name = row
-        holdings.append(UserHoldingInfo(
-            holding_id=uh.holding_id,
-            holding_name=holding_name,
-            role=uh.role,
+        uc, company_name = row
+        companies.append(UserCompanyInfo(
+            company_id=uc.company_id,
+            company_name=company_name,
+            role=uc.role,
         ))
 
     return UserResponse(
         id=user.id,
         email=user.email,
         is_verified=user.is_verified,
-        active_holding=active_holding,
-        holdings=holdings,
+        active_company=active_company,
+        companies=companies,
     )

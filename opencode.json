@@ -1,9 +1,19 @@
 ﻿{
   "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-sonnet-4-20250514",
+  "default_agent": "PM",
   "instructions": [
     "AGENTS.md",
     "system-reminder.md"
   ],
+  "tool_output": {
+    "max_lines": 500,
+    "max_bytes": 25600
+  },
+  "compaction": {
+    "auto": true,
+    "tail_turns": 5
+  },
   "agent": {
     "PM": {
       "description": "Product Manager (Product scope and priorities)",

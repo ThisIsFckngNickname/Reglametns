@@ -28,7 +28,7 @@ export default function DevUserSwitcher() {
       getAdminUsers()
         .then((fetched) => {
           const nonAdmin = fetched.filter((u) =>
-            !u.holdings?.some((h) => h.role === 'admin')
+            !u.companies?.some((h) => h.role === 'admin')
           )
           const sorted = [...nonAdmin].sort((a, b) => a.email.localeCompare(b.email))
           setUsers(sorted)

@@ -18,9 +18,9 @@ import {
 } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, UserOutlined, LockOutlined, UnlockOutlined } from '@ant-design/icons'
 import { getAdminUsers, createAdminUser, updateAdminUser, deleteAdminUser, banUser, unbanUser } from '../api/admin'
-import { getHoldings } from '../api/holdings'
+import { getCompanies } from '../api/companies'
 import { getApiErrorMessage } from '../api/client'
-import type { AdminUserResponse, Holding } from '../types'
+import type { AdminUserResponse, Company } from '../types'
 import dayjs from 'dayjs'
 
 const { Title } = Typography
@@ -28,7 +28,7 @@ const { Title } = Typography
 export default function AdminUsersPage() {
   const navigate = useNavigate()
   const [users, setUsers] = useState<AdminUserResponse[]>([])
-  const [holdings, setHoldings] = useState<Holding[]>([])
+  const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -43,12 +43,12 @@ export default function AdminUsersPage() {
     setLoading(true)
     setError(null)
     try {
-      const [usersData, holdingsData] = await Promise.all([
+      const [usersData, companiesData] = await Promise.all([
         getAdminUsers(),
-        getHoldings(),
+        getCompanies(),
       ])
       setUsers(usersData)
-      setHoldings(holdingsData)
+      setCompanies(companiesData)
     } catch (err) {
       setError(getApiErrorMessage(err))
     } finally {
@@ -94,7 +94,7 @@ export default function AdminUsersPage() {
         await createAdminUser({
           email: values.email,
           password: values.password,
-          holding_id: values.holding_id || null,
+          company_id: values.company_id || null,
           role: values.role || 'user',
         })
         message.success('Пользователь создан')
@@ -170,17 +170,17 @@ export default function AdminUsersPage() {
       ),
     },
     {
-      title: 'Холдинги',
-      key: 'holdings',
+      title: 'Компании',
+      key: 'companies',
       render: (_: unknown, record: AdminUserResponse) => (
         <Space size="small" wrap>
-          {record.holdings.length > 0
-            ? record.holdings.map((h) => (
-                <Tag key={h.holding_id} color={h.role === 'admin' ? 'red' : 'blue'}>
-                  {h.holding_name} ({h.role})
+          {record.companies.length > 0
+            ? record.companies.map((h) => (
+                <Tag key={h.company_id} color={h.role === 'admin' ? 'red' : 'blue'}>
+                  {h.company_name} ({h.role})
                 </Tag>
               ))
-            : <Tag>Нет холдингов</Tag>}
+            : <Tag>Нет компаний</Tag>}
         </Space>
       ),
     },
@@ -250,10 +250,10 @@ export default function AdminUsersPage() {
         <Tabs
           activeKey="users"
           onChange={(key) => {
-            if (key === 'holdings') navigate('/admin/holdings')
+            if (key === 'companies') navigate('/admin/companies')
           }}
           items={[
-            { key: 'holdings', label: '🏢 Холдинги' },
+            { key: 'companies', label: '🏢 Компании' },
             { key: 'users', label: '👤 Пользователи' },
           ]}
           style={{ marginBottom: 0 }}
@@ -357,11 +357,11 @@ export default function AdminUsersPage() {
 
           {!editingUser && (
             <>
-              <Form.Item name="holding_id" label="Холдинг">
+              <Form.Item name="company_id" label="Компания">
                 <Select
-                  placeholder="Выберите холдинг (опционально)"
+                  placeholder="Выберите компанию (опционально)"
                   allowClear
-                  options={holdings.map((h) => ({
+                  options={companies.map((h) => ({
                     value: h.id,
                     label: `${h.legal_form} "${h.name}"`,
                   }))}

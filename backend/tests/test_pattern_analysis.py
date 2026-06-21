@@ -15,12 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.document import Document
+from app.models.document_status import DocumentStatus
 from app.models.document_version import DocumentVersion
 from app.models.document_section import DocumentSection
 from app.models.document_term import DocumentTerm
 from app.models.document_abbreviation import DocumentAbbreviation
 from app.models.document_status_log import DocumentStatusLog
-from app.models.holding import Holding
+from app.models.company import Company
 from app.models.user import User
 from app.services.pattern_analysis_service import PatternAnalysisService
 from app.services.document_service import DocumentService
@@ -31,14 +32,14 @@ from app.schemas.document import DocumentUpdate
 
 async def _create_test_document(
     session: AsyncSession,
-    holding_id: int,
+    company_id: int,
     created_by: int,
-    status: str = "draft",
+    status: DocumentStatus = DocumentStatus.DRAFT,
     was_analyzed: bool = False,
 ) -> Document:
     """Create a minimal document for testing."""
     doc = Document(
-        holding_id=holding_id,
+        company_id=company_id,
         title="Test Document",
         description="A test document for pattern analysis",
         status=status,
@@ -134,13 +135,13 @@ class TestPatternAnalysisService:
     async def test_analyze_document_basic_flow(
         self, test_session: AsyncSession
     ):
-        """Should analyze a document and update holding patterns."""
+        """Should analyze a document and update company patterns."""
         # Arrange
-        holding = Holding(name="Analysis Holding", inn="7701000001", legal_form="ООО")
-        test_session.add(holding)
+        company = Company(name="Analysis Company", inn="7701000001", legal_form="ООО")
+        test_session.add(company)
         await test_session.flush()
 
-        doc = await _create_test_document(test_session, holding.id, 1)
+        doc = await _create_test_document(test_session, company.id, 1)
         ver = await _create_test_version(test_session, doc.id)
         await _create_test_section(
             test_session, ver.id, "Общие положения", 1, 1,
@@ -160,7 +161,7 @@ class TestPatternAnalysisService:
 
         # Assert
         assert result["document_id"] == doc.id
-        assert result["holding_id"] == holding.id
+        assert result["company_id"] == company.id
         assert result["structure_extracted"] is True
         assert result["style_extracted"] is True
         assert result["terms_collected"] == 1
@@ -170,12 +171,12 @@ class TestPatternAnalysisService:
         await test_session.refresh(doc)
         assert doc.was_analyzed is True
 
-        # Verify holding patterns were updated
-        await test_session.refresh(holding)
-        assert holding.document_structure is not None
-        assert holding.style_settings is not None
-        assert "max_depth" in holding.document_structure
-        assert "typical_phrases" in holding.style_settings
+        # Verify company patterns were updated
+        await test_session.refresh(company)
+        assert company.document_structure is not None
+        assert company.style_settings is not None
+        assert "max_depth" in company.document_structure
+        assert "typical_phrases" in company.style_settings
 
     @pytest.mark.asyncio
     async def test_analyze_document_already_analyzed(
@@ -183,12 +184,12 @@ class TestPatternAnalysisService:
     ):
         """Should return error if document was already analyzed."""
         # Arrange
-        holding = Holding(name="Analyzed Holding", inn="7701000002", legal_form="ООО")
-        test_session.add(holding)
+        company = Company(name="Analyzed Company", inn="7701000002", legal_form="ООО")
+        test_session.add(company)
         await test_session.flush()
 
         doc = await _create_test_document(
-            test_session, holding.id, 1, was_analyzed=True
+            test_session, company.id, 1, was_analyzed=True
         )
 
         service = PatternAnalysisService()
@@ -219,11 +220,11 @@ class TestPatternAnalysisService:
     ):
         """Should return error if document has no versions."""
         # Arrange
-        holding = Holding(name="NoVersion Holding", inn="7701000003", legal_form="ООО")
-        test_session.add(holding)
+        company = Company(name="NoVersion Company", inn="7701000003", legal_form="ООО")
+        test_session.add(company)
         await test_session.flush()
 
-        doc = await _create_test_document(test_session, holding.id, 1)
+        doc = await _create_test_document(test_session, company.id, 1)
 
         service = PatternAnalysisService()
 
@@ -239,11 +240,11 @@ class TestPatternAnalysisService:
     ):
         """Should extract section hierarchy correctly."""
         # Arrange
-        holding = Holding(name="Structure Holding", inn="7701000004", legal_form="ООО")
-        test_session.add(holding)
+        company = Company(name="Structure Company", inn="7701000004", legal_form="ООО")
+        test_session.add(company)
         await test_session.flush()
 
-        doc = await _create_test_document(test_session, holding.id, 1)
+        doc = await _create_test_document(test_session, company.id, 1)
         ver = await _create_test_version(test_session, doc.id)
         await _create_test_section(test_session, ver.id, "Глава 1", 1, 1, "Content 1")
         await _create_test_section(test_session, ver.id, "Глава 2", 1, 2, "Content 2")
@@ -269,11 +270,11 @@ class TestPatternAnalysisService:
     ):
         """Should extract style patterns from section content."""
         # Arrange
-        holding = Holding(name="Style Holding", inn="7701000005", legal_form="ООО")
-        test_session.add(holding)
+        company = Company(name="Style Company", inn="7701000005", legal_form="ООО")
+        test_session.add(company)
         await test_session.flush()
 
-        doc = await _create_test_document(test_session, holding.id, 1)
+        doc = await _create_test_document(test_session, company.id, 1)
         ver = await _create_test_version(test_session, doc.id)
         await _create_test_section(
             test_session, ver.id, "Раздел 1", 1, 1,
@@ -302,11 +303,11 @@ class TestPatternAnalysisService:
     ):
         """Should collect terms and abbreviations from a document."""
         # Arrange
-        holding = Holding(name="Collect Holding", inn="7701000006", legal_form="ООО")
-        test_session.add(holding)
+        company = Company(name="Collect Company", inn="7701000006", legal_form="ООО")
+        test_session.add(company)
         await test_session.flush()
 
-        doc = await _create_test_document(test_session, holding.id, 1)
+        doc = await _create_test_document(test_session, company.id, 1)
         await _create_test_term(test_session, doc.id, "Регламент", "Правила работы")
         await _create_test_term(test_session, doc.id, "Инструкция", "Руководство к действию")
         await _create_test_abbreviation(test_session, doc.id, "ООО", "Общество с ограниченной ответственностью")
@@ -334,20 +335,20 @@ class TestStatusChangeTrigger:
     ):
         """Should create a DocumentStatusLog when status changes."""
         # Arrange
-        holding = Holding(name="StatusLog Holding", inn="7701000007", legal_form="ООО")
-        test_session.add(holding)
+        company = Company(name="StatusLog Company", inn="7701000007", legal_form="ООО")
+        test_session.add(company)
         await test_session.flush()
 
-        doc = await _create_test_document(test_session, holding.id, 1, status="draft")
+        doc = await _create_test_document(test_session, company.id, 1, status=DocumentStatus.DRAFT)
 
         service = DocumentService()
 
         # Act
-        update = DocumentUpdate(status="review")
+        update = DocumentUpdate(status=DocumentStatus.REVIEW)
         await service.update_document(
             id=doc.id,
             data=update,
-            holding_id=holding.id,
+            company_id=company.id,
             db=test_session,
             user_id=None,
         )
@@ -357,8 +358,8 @@ class TestStatusChangeTrigger:
         result = await test_session.execute(stmt)
         logs = result.scalars().all()
         assert len(logs) == 1
-        assert logs[0].from_status == "draft"
-        assert logs[0].to_status == "review"
+        assert logs[0].from_status == DocumentStatus.DRAFT
+        assert logs[0].to_status == DocumentStatus.REVIEW
 
     @pytest.mark.asyncio
     async def test_status_change_triggers_analysis(
@@ -366,11 +367,11 @@ class TestStatusChangeTrigger:
     ):
         """Should trigger pattern analysis when status changes to approved."""
         # Arrange
-        holding = Holding(name="Trigger Holding", inn="7701000008", legal_form="ООО")
-        test_session.add(holding)
+        company = Company(name="Trigger Company", inn="7701000008", legal_form="ООО")
+        test_session.add(company)
         await test_session.flush()
 
-        doc = await _create_test_document(test_session, holding.id, 1, status="review")
+        doc = await _create_test_document(test_session, company.id, 1, status=DocumentStatus.REVIEW)
         ver = await _create_test_version(test_session, doc.id)
         await _create_test_section(
             test_session, ver.id, "Основной раздел", 1, 1,
@@ -381,11 +382,11 @@ class TestStatusChangeTrigger:
         service = DocumentService()
 
         # Act
-        update = DocumentUpdate(status="approved")
+        update = DocumentUpdate(status=DocumentStatus.APPROVED)
         await service.update_document(
             id=doc.id,
             data=update,
-            holding_id=holding.id,
+            company_id=company.id,
             db=test_session,
             user_id=None,
         )
@@ -394,11 +395,11 @@ class TestStatusChangeTrigger:
         await test_session.refresh(doc)
         assert doc.was_analyzed is True
 
-        # Verify holding was updated
-        await test_session.refresh(holding)
-        assert holding.document_structure is not None
-        assert holding.style_settings is not None
-        assert holding.style_settings.get("documents_analyzed") == 1
+        # Verify company was updated
+        await test_session.refresh(company)
+        assert company.document_structure is not None
+        assert company.style_settings is not None
+        assert company.style_settings.get("documents_analyzed") == 1
 
     @pytest.mark.asyncio
     async def test_no_log_on_same_status(
@@ -406,20 +407,20 @@ class TestStatusChangeTrigger:
     ):
         """Should not create a log entry if status didn't change."""
         # Arrange
-        holding = Holding(name="SameStatus Holding", inn="7701000009", legal_form="ООО")
-        test_session.add(holding)
+        company = Company(name="SameStatus Company", inn="7701000009", legal_form="ООО")
+        test_session.add(company)
         await test_session.flush()
 
-        doc = await _create_test_document(test_session, holding.id, 1, status="draft")
+        doc = await _create_test_document(test_session, company.id, 1, status=DocumentStatus.DRAFT)
 
         service = DocumentService()
 
         # Act - update with same status
-        update = DocumentUpdate(status="draft")
+        update = DocumentUpdate(status=DocumentStatus.DRAFT)
         await service.update_document(
             id=doc.id,
             data=update,
-            holding_id=holding.id,
+            company_id=company.id,
             db=test_session,
             user_id=None,
         )

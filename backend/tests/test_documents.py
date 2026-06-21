@@ -8,6 +8,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.models.document import Document
+from app.models.document_status import DocumentStatus
 from app.models.document_version import DocumentVersion
 from app.models.document_section import DocumentSection
 from app.models.document_table import DocumentTable
@@ -48,7 +49,7 @@ class TestUploadDocument:
         assert response.status_code == 201, f"Response: {response.text}"
         data = response.json()
         assert data["title"] == "Test Docx Document"
-        assert data["status"] == "draft"
+        assert data["status"] == DocumentStatus.DRAFT
         assert data["file_type"] == "docx"
         assert data["file_size"] > 0
         assert data["sections_count"] > 0
@@ -113,24 +114,24 @@ class TestUploadDocument:
         assert data["detail"]["code"] == "FILE_TOO_LARGE"
 
     @pytest.mark.asyncio
-    async def test_upload_no_active_holding(
+    async def test_upload_no_active_company(
         self, client: AsyncClient, regular_user: User, user_token: str
     ):
-        """User without active_holding_id should get 403."""
-        # regular_user has no active_holding_id set
+        """User without active_company_id should get 403."""
+        # regular_user has no active_company_id set
         docx_path = _get_sample_path("sample.docx")
 
         with open(docx_path, "rb") as f:
             response = await client.post(
                 "/api/v1/documents/upload",
                 files={"file": ("sample.docx", f, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
-                data={"title": "No holding"},
+                data={"title": "No company"},
                 headers={"Authorization": f"Bearer {user_token}"},
             )
 
         assert response.status_code == 403
         data = response.json()
-        assert data["detail"]["code"] == "NO_ACTIVE_HOLDING"
+        assert data["detail"]["code"] == "NO_ACTIVE_COMPANY"
 
     @pytest.mark.asyncio
     async def test_upload_unauthorized(self, client: AsyncClient):
@@ -188,7 +189,7 @@ class TestListDocuments:
         assert response.status_code == 200
         data = response.json()
         for item in data["items"]:
-            assert item["status"] == "draft"
+            assert item["status"] == DocumentStatus.DRAFT
 
     @pytest.mark.asyncio
     async def test_list_documents_with_search(
@@ -245,8 +246,8 @@ class TestGetDocument:
         assert data["title"] == "Detail Test"
         assert data["stats"]["versions_count"] >= 1
         assert data["stats"]["sections_count"] >= 0
-        assert data["status"] == "draft"
-        assert "holding_id" in data
+        assert data["status"] == DocumentStatus.DRAFT
+        assert "company_id" in data
 
     @pytest.mark.asyncio
     async def test_get_document_not_found(
@@ -284,12 +285,12 @@ class TestUpdateDocument:
         # Update status to review
         response = await client.put(
             f"/api/v1/documents/{doc_id}",
-            json={"status": "review"},
+            json={"status": DocumentStatus.REVIEW},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["status"] == "review"
+        assert data["status"] == DocumentStatus.REVIEW
 
         # Update title
         response = await client.put(
@@ -311,7 +312,7 @@ class TestUpdateDocument:
         from sqlalchemy import select
 
         user = (await test_session.execute(select(User).where(User.email == "admin@test.ru"))).scalar_one()
-        doc = Document(holding_id=user.active_holding_id, title="Invalid Status Test", created_by=user.id)
+        doc = Document(company_id=user.active_company_id, title="Invalid Status Test", created_by=user.id)
         test_session.add(doc)
         await test_session.flush()
 
@@ -356,7 +357,7 @@ class TestArchiveDocument:
             f"/api/v1/documents/{doc_id}",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
-        assert get_resp.json()["status"] == "archived"
+        assert get_resp.json()["status"] == DocumentStatus.ARCHIVED
 
     @pytest.mark.asyncio
     async def test_archive_document_not_found(

@@ -22,13 +22,13 @@ from app.models.document_version import DocumentVersion
 from app.models.document_section import DocumentSection
 from app.models.document_term import DocumentTerm
 from app.models.document_abbreviation import DocumentAbbreviation
-from app.models.holding import Holding
+from app.models.company import Company
 
 logger = logging.getLogger(__name__)
 
 
 class PatternAnalysisService:
-    """Analyzes approved documents and extracts patterns for the holding."""
+    """Analyzes approved documents and extracts patterns for the company."""
 
     async def analyze_document(
         self,
@@ -67,11 +67,11 @@ class PatternAnalysisService:
         terms_data = await self._collect_terms(doc.id, db)
         abbrs_data = await self._collect_abbreviations(doc.id, db)
 
-        # 4. Update holding profile
-        holding = await self._load_holding(doc.holding_id, db)
-        if holding:
-            await self._update_holding_patterns(
-                holding, structure, style, terms_data, abbrs_data, db
+        # 4. Update company profile
+        company = await self._load_company(doc.company_id, db)
+        if company:
+            await self._update_company_patterns(
+                company, structure, style, terms_data, abbrs_data, db
             )
 
         # 5. Mark document as analyzed
@@ -80,7 +80,7 @@ class PatternAnalysisService:
 
         return {
             "document_id": doc.id,
-            "holding_id": doc.holding_id,
+            "company_id": doc.company_id,
             "structure_extracted": bool(structure.get("sections")),
             "style_extracted": bool(style.get("typical_phrases") or style.get("avg_sentence_length", 0) > 0),
             "terms_collected": len(terms_data),
@@ -194,31 +194,31 @@ class PatternAnalysisService:
         abbrs = result.scalars().all()
         return [{"abbreviation": a.abbreviation, "full_form": a.full_form} for a in abbrs]
 
-    async def _load_holding(self, holding_id: int, db: AsyncSession) -> Optional[Holding]:
-        stmt = select(Holding).where(Holding.id == holding_id)
+    async def _load_company(self, company_id: int, db: AsyncSession) -> Optional[Company]:
+        stmt = select(Company).where(Company.id == company_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def _update_holding_patterns(
+    async def _update_company_patterns(
         self,
-        holding: Holding,
+        company: Company,
         structure: dict,
         style: dict,
         terms: list[dict],
         abbreviations: list[dict],
         db: AsyncSession,
     ) -> None:
-        """Update holding profile with extracted patterns."""
+        """Update company profile with extracted patterns."""
         # Update document_structure
         current_structure = {}
-        if holding.document_structure:
-            if isinstance(holding.document_structure, str):
+        if company.document_structure:
+            if isinstance(company.document_structure, str):
                 try:
-                    current_structure = json.loads(holding.document_structure)
+                    current_structure = json.loads(company.document_structure)
                 except (json.JSONDecodeError, TypeError):
                     current_structure = {}
             else:
-                current_structure = dict(holding.document_structure)
+                current_structure = dict(company.document_structure)
 
         current_structure["max_depth"] = max(
             current_structure.get("max_depth", 0),
@@ -233,18 +233,18 @@ class PatternAnalysisService:
             existing_titles.add(title)
         current_structure["top_level_titles"] = list(existing_titles)
 
-        holding.document_structure = current_structure
+        company.document_structure = current_structure
 
         # Update style_settings
         current_style = {}
-        if holding.style_settings:
-            if isinstance(holding.style_settings, str):
+        if company.style_settings:
+            if isinstance(company.style_settings, str):
                 try:
-                    current_style = json.loads(holding.style_settings)
+                    current_style = json.loads(company.style_settings)
                 except (json.JSONDecodeError, TypeError):
                     current_style = {}
             else:
-                current_style = dict(holding.style_settings)
+                current_style = dict(company.style_settings)
 
         # Merge style patterns
         existing_phrases = set(current_style.get("typical_phrases", []))
@@ -265,11 +265,11 @@ class PatternAnalysisService:
         current_style["avg_sentence_length"] = round(combined_avg, 1)
         current_style["documents_analyzed"] = new_count
 
-        holding.style_settings = current_style
+        company.style_settings = current_style
 
         # Log the update
         logger.info(
-            f"Updated holding {holding.id} patterns: "
+            f"Updated company {company.id} patterns: "
             f"structure_depth={structure.get('max_depth')}, "
             f"phrases_added={len(style.get('typical_phrases', []))}, "
             f"total_analyzed={new_count}"

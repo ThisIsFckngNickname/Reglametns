@@ -22,7 +22,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Cm, Pt
 from docx.oxml.ns import qn
 
-from app.models.holding import Holding
+from app.models.company import Company
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +33,14 @@ class DocxBuilder:
     def build(
         self,
         result: dict,
-        holding: Holding,
+        company: Company,
         output_path: str,
     ) -> str:
         """Build .docx from generation result.
 
         Args:
             result: Parsed generation result with title, sections, terms, etc.
-            holding: Holding profile for styling.
+            company: Company profile for styling.
             output_path: Full path where the .docx file will be saved.
 
         Returns:
@@ -52,11 +52,11 @@ class DocxBuilder:
         self._setup_default_style(doc)
 
         # Apply GOST if enabled
-        if holding.use_gost:
+        if company.use_gost:
             self._apply_gost(doc)
 
-        # Apply holding-specific style
-        self._apply_holding_style(doc, holding)
+        # Apply company-specific style
+        self._apply_company_style(doc, company)
 
         # Build document content
         self._add_title(doc, result.get("title", "Документ"))
@@ -203,18 +203,18 @@ class DocxBuilder:
             for run in paragraph.runs:
                 run.bold = True
 
-    def _apply_holding_style(self, doc: DocxDocument, holding: Holding) -> None:
-        """Apply holding-specific styling (fonts, margins, etc.)."""
-        if not holding.style_settings:
+    def _apply_company_style(self, doc: DocxDocument, company: Company) -> None:
+        """Apply company-specific styling (fonts, margins, etc.)."""
+        if not company.style_settings:
             return
 
-        style_settings = holding.style_settings
+        style_settings = company.style_settings
         if not isinstance(style_settings, dict):
             try:
                 import json
                 style_settings = json.loads(str(style_settings))
             except (json.JSONDecodeError, TypeError):
-                logger.warning(f"Invalid style_settings for holding {holding.id}")
+                logger.warning(f"Invalid style_settings for company {company.id}")
                 return
 
         try:

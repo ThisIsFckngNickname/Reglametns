@@ -3,12 +3,12 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from app.schemas.holding import HoldingBrief
+from app.schemas.company import CompanyBrief
 
 
-class UserHoldingInfo(BaseModel):
-    holding_id: int
-    holding_name: str
+class UserCompanyInfo(BaseModel):
+    company_id: int
+    company_name: str
     role: str
 
     model_config = {"from_attributes": True}
@@ -18,8 +18,8 @@ class UserResponse(BaseModel):
     id: int
     email: str
     is_verified: bool
-    active_holding: Optional[HoldingBrief] = None
-    holdings: list[UserHoldingInfo] = []
+    active_company: Optional[CompanyBrief] = None
+    companies: list[UserCompanyInfo] = []
 
     model_config = {"from_attributes": True}
 
@@ -27,7 +27,7 @@ class UserResponse(BaseModel):
 class AdminUserCreate(BaseModel):
     email: str
     password: str
-    holding_id: Optional[int] = None
+    company_id: Optional[int] = None
     role: str = "user"
 
 
@@ -43,17 +43,17 @@ class AdminUserResponse(BaseModel):
     email: str
     is_verified: bool
     is_banned: bool = False
-    active_holding: Optional[HoldingBrief] = None
-    holdings: list[UserHoldingInfo] = []
+    active_company: Optional[CompanyBrief] = None
+    companies: list[UserCompanyInfo] = []
     created_at: datetime
 
     model_config = {"from_attributes": True}
 
 
-class SetHoldingRequest(BaseModel):
-    holding_id: int
+class SetCompanyRequest(BaseModel):
+    company_id: int
 
 
-class SetHoldingResponse(BaseModel):
+class SetCompanyResponse(BaseModel):
     message: str
-    active_holding: HoldingBrief
+    active_company: CompanyBrief

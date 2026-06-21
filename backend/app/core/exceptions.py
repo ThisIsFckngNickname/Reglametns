@@ -126,11 +126,11 @@ class ParseError(AppException):
         )
 
 
-class NoActiveHolding(AppException):
-    def __init__(self, message: str = "Выберите холдинг в профиле", field: Optional[str] = None):
+class NoActiveCompany(AppException):
+    def __init__(self, message: str = "Выберите компанию в профиле", field: Optional[str] = None):
         super().__init__(
             status_code=status.HTTP_403_FORBIDDEN,
-            code="NO_ACTIVE_HOLDING",
+            code="NO_ACTIVE_COMPANY",
             message=message,
             field=field,
         )

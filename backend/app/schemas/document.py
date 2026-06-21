@@ -3,6 +3,8 @@ from typing import Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, field_validator
 
+from app.models.document_status import DocumentStatus
+
 T = TypeVar("T")
 
 
@@ -33,7 +35,7 @@ class DocumentCreate(BaseModel):
 class DocumentUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[DocumentStatus] = None
 
     @field_validator("title")
     @classmethod
@@ -46,11 +48,11 @@ class DocumentUpdate(BaseModel):
 
     @field_validator("status")
     @classmethod
-    def validate_status(cls, v: Optional[str]) -> Optional[str]:
+    def validate_status(cls, v):
         if v is not None:
-            allowed = {"draft", "review", "approved", "archived"}
+            allowed = {s.value for s in DocumentStatus}
             if v not in allowed:
-                raise ValueError(f"Status must be one of: {', '.join(sorted(allowed))}")
+                raise ValueError(f"Invalid status '{v}'. Allowed: {', '.join(sorted(allowed))}")
         return v
 
 
@@ -76,10 +78,10 @@ class DocumentVersionBrief(BaseModel):
 
 class DocumentResponse(BaseModel):
     id: int
-    holding_id: int
+    company_id: int
     title: str
     description: Optional[str] = None
-    status: str
+    status: DocumentStatus
     created_by: Optional[dict] = None  # {"id": int, "email": str}
     current_version: Optional[DocumentVersionBrief] = None
     stats: DocumentStats = DocumentStats()
@@ -93,7 +95,7 @@ class DocumentListItem(BaseModel):
     id: int
     title: str
     description: Optional[str] = None
-    status: str
+    status: DocumentStatus
     created_at: datetime
     updated_at: datetime
     file_type: Optional[str] = None

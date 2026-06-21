@@ -2,7 +2,6 @@
 Test configuration and fixtures for SRP backend tests.
 """
 
-import asyncio
 import os
 from typing import AsyncGenerator
 
@@ -13,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, get_db
 from app.main import app
-from app.models.holding import Holding
+from app.models.company import Company
 from app.models.user import User
-from app.models.user_holding import UserHolding
+from app.models.user_company import UserCompany
 from app.core.security import create_access_token
 from app.core.rate_limiter import InMemoryRateLimiter, RateLimiter
 from app.services.cache_service import CacheService
@@ -25,17 +24,9 @@ from app.services.email_service import ConsoleEmailService
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create a single event loop for the entire test session."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def test_engine():
-    """Create a test engine."""
+    """Create a test engine (session-scoped event loop via loop_scope)."""
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -82,12 +73,12 @@ async def admin_user(test_session: AsyncSession) -> User:
     user = User(email="admin@test.ru", is_verified=True)
     test_session.add(user)
     await test_session.flush()
-    holding = Holding(name="Test Holding", inn="7701123456", legal_form="ООО")
-    test_session.add(holding)
+    company = Company(name="Test Company", inn="7701123456", legal_form="ООО")
+    test_session.add(company)
     await test_session.flush()
-    uh = UserHolding(user_id=user.id, holding_id=holding.id, role="admin")
-    test_session.add(uh)
-    user.active_holding_id = holding.id
+    uc = UserCompany(user_id=user.id, company_id=company.id, role="admin")
+    test_session.add(uc)
+    user.active_company_id = company.id
     await test_session.flush()
     return user
 
@@ -102,12 +93,12 @@ async def regular_user(test_session: AsyncSession) -> User:
 
 
 @pytest_asyncio.fixture
-async def demo_holding(test_session: AsyncSession) -> Holding:
-    """Create a demo holding for testing."""
-    holding = Holding(name="Demo Holding", inn="7701987654", legal_form="АО")
-    test_session.add(holding)
+async def demo_company(test_session: AsyncSession) -> Company:
+    """Create a demo company for testing."""
+    company = Company(name="Demo Company", inn="7701987654", legal_form="АО")
+    test_session.add(company)
     await test_session.flush()
-    return holding
+    return company
 
 
 @pytest.fixture

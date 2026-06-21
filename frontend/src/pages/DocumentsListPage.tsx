@@ -62,7 +62,7 @@ export default function DocumentsListPage() {
   )
 
   const { user } = useAuthStore()
-  const isAdmin = user?.holdings?.some((h) => h.role === 'admin') ?? false
+  const isAdmin = user?.companies?.some((h) => h.role === 'admin') ?? false
 
   const loadDocuments = useCallback(
     (params?: { status?: string; search?: string; page?: number }) => {

@@ -27,16 +27,16 @@ export interface TokenResponse {
 
 // ---- User types ----
 
-export interface HoldingBrief {
+export interface CompanyBrief {
   id: number
   name: string
   inn: string | null
   legal_form: string
 }
 
-export interface UserHoldingInfo {
-  holding_id: number
-  holding_name: string
+export interface UserCompanyInfo {
+  company_id: number
+  company_name: string
   role: string
 }
 
@@ -44,25 +44,25 @@ export interface UserProfile {
   id: number
   email: string
   is_verified: boolean
-  active_holding: HoldingBrief | null
-  holdings?: UserHoldingInfo[]
+  active_company: CompanyBrief | null
+  companies?: UserCompanyInfo[]
 }
 
-export interface SetHoldingRequest {
-  holding_id: number
+export interface SetCompanyRequest {
+  company_id: number
 }
 
-export interface SetHoldingResponse {
+export interface SetCompanyResponse {
   message: string
-  active_holding: {
+  active_company: {
     id: number
     name: string
   }
 }
 
-// ---- Holding types ----
+// ---- Company types ----
 
-export interface Holding {
+export interface Company {
   id: number
   name: string
   inn: string | null
@@ -70,13 +70,13 @@ export interface Holding {
   created_at: string
 }
 
-export interface HoldingCreate {
+export interface CompanyCreate {
   name: string
   inn?: string | null
   legal_form: string
 }
 
-export interface HoldingUpdate {
+export interface CompanyUpdate {
   name?: string
   inn?: string | null
   legal_form?: string
@@ -112,7 +112,7 @@ export interface AuthState {
 export interface AdminUserCreate {
   email: string
   password: string
-  holding_id?: number | null
+  company_id?: number | null
   role?: string
 }
 
@@ -127,8 +127,8 @@ export interface AdminUserResponse {
   email: string
   is_verified: boolean
   is_banned: boolean
-  active_holding: HoldingBrief | null
-  holdings: UserHoldingInfo[]
+  active_company: CompanyBrief | null
+  companies: UserCompanyInfo[]
   created_at: string
 }
 
@@ -156,7 +156,7 @@ export interface DocumentDetail {
   title: string
   description: string | null
   status: DocumentStatus
-  holding_id: number
+  company_id: number
   created_by: { id: number; email: string }
   current_version: DocumentVersionBrief | null
   stats: {
@@ -269,7 +269,7 @@ export interface GeneratorState {
   error: string | null
 }
 
-// ---- Holding Profile types ----
+// ---- Company Profile types ----
 
 export interface AvailableSource {
   id: string // "pravo_gov_ru" | "docs_cntd_ru" | "consultant_plus" | "garant" | "user_defined"
@@ -277,10 +277,10 @@ export interface AvailableSource {
   description: string
   is_paid: boolean
   is_builtin: boolean
-  is_active: boolean // входит ли в active_sources текущего холдинга
+  is_active: boolean // входит ли в active_sources текущей компании
 }
 
-export interface HoldingProfile {
+export interface CompanyProfile {
   id: number
   name: string
   inn: string | null
@@ -303,33 +303,6 @@ export interface DocumentLink {
   created_at: string
 }
 
-// ---- Orders ----
-
-export type OrderStatus = 'draft' | 'active' | 'cancelled'
-
-export interface Order {
-  id: number
-  title: string
-  order_number: string | null
-  order_date: string | null
-  description: string | null
-  status: OrderStatus
-  file_type: string | null
-  file_size: number | null
-  created_by: { id: number; email: string }
-  created_at: string
-  updated_at: string
-}
-
-export interface OrderDocumentLink {
-  id: number
-  order_id: number
-  document_id: number
-  link_type: string
-  description: string | null
-  document?: DocumentListItem
-}
-
 // ---- Legislation types ----
 
 export interface LegislationItem {
@@ -341,102 +314,3 @@ export interface LegislationItem {
   snippet: string
 }
 
-export interface LegislationResult {
-  query: string
-  source: string
-  items: LegislationItem[]
-  total: number
-  page: number
-}
-
-export interface LegislationSource {
-  id: number
-  holding_id: number
-  name: string
-  source_type: 'template_url' | 'static_list' | 'custom_parser'
-  url_template: string | null
-  parser_type: 'html' | 'json' | 'xml' | 'text' | null
-  selector: string | null
-  is_active: boolean
-  is_paid: boolean
-  icon_url: string | null
-  description: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface LegislationSourceCreate {
-  name: string
-  source_type: 'template_url' | 'static_list' | 'custom_parser'
-  url_template?: string
-  parser_type?: string
-  selector?: string
-  is_paid?: boolean
-  icon_url?: string
-  description?: string
-}
-
-export interface LegislationSourceSearchResult {
-  title: string
-  url: string
-  snippet: string
-  date: string | null
-}
-
-// ---- Impact Map types ----
-
-export interface ImpactMap {
-  document_id: number
-  document_title: string
-  incoming: {
-    orders: ImpactItem[]
-    documents: ImpactItem[]
-  }
-  outgoing: {
-    orders: ImpactItem[]
-    documents: ImpactItem[]
-  }
-}
-
-export interface ImpactItem {
-  id: number
-  title: string
-  type: 'amends' | 'references' | 'supersedes' | 'related' | 'cancels'
-  date?: string
-}
-
-// ---- Impact Graph types (for cytoscape visualization) ----
-
-export interface ImpactGraphNode {
-  id: string
-  label: string
-  type: 'document' | 'order'
-  documentId?: number
-  orderId?: number
-}
-
-export interface ImpactGraphEdge {
-  source: string
-  target: string
-  label: string
-  type: string
-}
-
-export interface ImpactGraph {
-  nodes: ImpactGraphNode[]
-  edges: ImpactGraphEdge[]
-}
-
-// ---- Document Diff types ----
-
-export interface DocumentDiffChange {
-  field: string
-  old_value: string | null
-  new_value: string | null
-}
-
-export interface DocumentDiffResponse {
-  from_version: number
-  to_version: number
-  changes: DocumentDiffChange[]
-}

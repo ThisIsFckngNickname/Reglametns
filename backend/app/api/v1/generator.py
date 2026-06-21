@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_active_holding
+from app.api.deps import get_current_user, require_active_company
 from app.database import get_db
 from app.models.user import User
 from app.schemas.document import DocumentResponse
@@ -31,7 +31,7 @@ async def generate_document(
     influencing_document_ids: Optional[str] = Form(
         None, description="JSON-массив ID документов"
     ),
-    user: User = Depends(require_active_holding),
+    user: User = Depends(require_active_company),
     db: AsyncSession = Depends(get_db),
 ):
     """Generate a document using AI.
@@ -56,7 +56,7 @@ async def generate_document(
             ids = []
 
     logger.info(
-        f"Generating document for holding {user.active_holding_id}, "
+        f"Generating document for company {user.active_company_id}, "
         f"context length: {len(context)}, "
         f"drafts: {len(draft_files) if draft_files else 0}, "
         f"influencing docs: {len(ids)}"
@@ -65,7 +65,7 @@ async def generate_document(
     result = await generator_service.generate(
         context_description=context,
         user=user,
-        holding_id=user.active_holding_id,
+        company_id=user.active_company_id,
         draft_files=draft_files,
         influencing_document_ids=ids,
         db=db,

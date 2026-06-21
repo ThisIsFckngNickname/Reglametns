@@ -5,10 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException, UnauthorizedException
 from app.core.security import create_access_token, create_refresh_token, decode_token
-from app.models.holding import Holding
+from app.models.company import Company
 from app.models.user import User
-from app.models.user_holding import UserHolding
-from app.schemas.holding import HoldingBrief
+from app.models.user_company import UserCompany
+from app.schemas.company import CompanyBrief
 
 logger = logging.getLogger(__name__)
 
@@ -38,18 +38,18 @@ class AuthService:
         self.db.add(user)
         await self.db.flush()
 
-        # Auto-assign to the first available holding
-        first_holding_stmt = select(Holding).order_by(Holding.id).limit(1)
-        first_holding_result = await self.db.execute(first_holding_stmt)
-        first_holding = first_holding_result.scalar_one_or_none()
-        if first_holding:
-            user_holding = UserHolding(
+        # Auto-assign to the first available company
+        first_company_stmt = select(Company).order_by(Company.id).limit(1)
+        first_company_result = await self.db.execute(first_company_stmt)
+        first_company = first_company_result.scalar_one_or_none()
+        if first_company:
+            user_company = UserCompany(
                 user_id=user.id,
-                holding_id=first_holding.id,
+                company_id=first_company.id,
                 role="member",
             )
-            self.db.add(user_holding)
-            user.active_holding_id = first_holding.id
+            self.db.add(user_company)
+            user.active_company_id = first_company.id
             await self.db.flush()
 
         # Generate tokens
@@ -137,7 +137,7 @@ class AuthService:
         }
 
     async def get_current_user(self, user_id: int) -> User:
-        """Load a user by ID with active_holding relationship."""
+        """Load a user by ID with active_company relationship."""
         stmt = select(User).where(User.id == user_id)
         result = await self.db.execute(stmt)
         user = result.scalar_one_or_none()
@@ -150,52 +150,52 @@ class AuthService:
         return user
 
     async def get_user_profile(self, user_id: int) -> User:
-        """Get user profile with active holding."""
+        """Get user profile with active company."""
         return await self.get_current_user(user_id)
 
-    async def set_active_holding(self, user_id: int, holding_id: int) -> dict:
-        """Set the active holding for a user."""
-        # Check holding exists
-        stmt = select(Holding).where(Holding.id == holding_id)
+    async def set_active_company(self, user_id: int, company_id: int) -> dict:
+        """Set the active company for a user."""
+        # Check company exists
+        stmt = select(Company).where(Company.id == company_id)
         result = await self.db.execute(stmt)
-        holding = result.scalar_one_or_none()
+        company = result.scalar_one_or_none()
 
-        if holding is None:
+        if company is None:
             raise NotFoundException(
-                message="Holding not found",
-                field="holding_id",
+                message="Company not found",
+                field="company_id",
             )
 
         # Check membership
-        stmt = select(UserHolding).where(
-            UserHolding.user_id == user_id,
-            UserHolding.holding_id == holding_id,
+        stmt = select(UserCompany).where(
+            UserCompany.user_id == user_id,
+            UserCompany.company_id == company_id,
         )
         result = await self.db.execute(stmt)
         membership = result.scalar_one_or_none()
 
         if membership is None:
             raise ForbiddenException(
-                message="User is not a member of this holding",
+                message="User is not a member of this company",
             )
 
-        # Update user's active holding
+        # Update user's active company
         stmt = select(User).where(User.id == user_id)
         result = await self.db.execute(stmt)
         user = result.scalar_one()
-        user.active_holding_id = holding_id
+        user.active_company_id = company_id
 
         return {
-            "message": "Active holding set successfully",
-            "active_holding": HoldingBrief.model_validate(holding),
+            "message": "Active company set successfully",
+            "active_company": CompanyBrief.model_validate(company),
         }
 
-    async def get_holdings_list(self, user_id: int) -> list[Holding]:
-        """Get list of user's holdings with their roles."""
+    async def get_companies_list(self, user_id: int) -> list[Company]:
+        """Get list of user's companies with their roles."""
         stmt = (
-            select(Holding)
-            .join(UserHolding)
-            .where(UserHolding.user_id == user_id)
+            select(Company)
+            .join(UserCompany)
+            .where(UserCompany.user_id == user_id)
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())

@@ -1,7 +1,7 @@
 import { http, HttpResponse, delay } from 'msw'
 
 // In-memory state for mocks
-let users: Record<string, { id: number; email: string; is_verified: boolean; active_holding_id: number | null }> = {}
+let users: Record<string, { id: number; email: string; is_verified: boolean; active_company_id: number | null }> = {}
 let verificationCodes: Array<{
   email: string
   code: string
@@ -9,7 +9,7 @@ let verificationCodes: Array<{
   expires_at: Date
   used: boolean
 }> = []
-let holdings: Array<{
+let companies: Array<{
   id: number
   name: string
   inn: string | null
@@ -17,13 +17,13 @@ let holdings: Array<{
   active_sources: string[]
   created_at: string
 }> = []
-let userHoldings: Array<{
+let userCompanies: Array<{
   user_id: number
-  holding_id: number
+  company_id: number
   role: string
 }> = []
 let nextUserId = 1
-let nextHoldingId = 1
+let nextCompanyId = 1
 let nextCodeId = 1
 
 // Built-in adapter sources registry
@@ -71,32 +71,6 @@ let documentLinks: Array<{
 }> = []
 let nextLinkId = 1
 
-// In-memory state for orders
-let orders: Array<{
-  id: number
-  title: string
-  order_number: string | null
-  order_date: string | null
-  description: string | null
-  status: 'draft' | 'active' | 'cancelled'
-  file_type: string | null
-  file_size: number | null
-  created_by: { id: number; email: string }
-  created_at: string
-  updated_at: string
-}> = []
-let nextOrderId = 1
-
-// In-memory state for order-document links
-let orderDocumentLinks: Array<{
-  id: number
-  order_id: number
-  document_id: number
-  link_type: string
-  description: string | null
-}> = []
-let nextOrderDocLinkId = 1
-
 // In-memory state for document versions (richer)
 let documentVersionsList: Array<{
   id: number
@@ -134,35 +108,16 @@ function seedDocumentLinks() {
 }
 seedDocumentLinks()
 
-function seedOrders() {
-  orders = [
-    { id: 1, title: 'Об утверждении регламента разработки ВНД', order_number: '45-ОД', order_date: '2026-06-20', description: 'Утвердить регламент разработки внутренних нормативных документов.', status: 'active', file_type: 'pdf', file_size: 1024000, created_by: { id: 1, email: 'user@example.com' }, created_at: '2026-06-20T12:00:00Z', updated_at: '2026-06-20T12:00:00Z' },
-    { id: 2, title: 'О внесении изменений в политику конфиденциальности', order_number: '46-ОД', order_date: '2026-06-21', description: 'Внести изменения в Политику конфиденциальности в связи с изменением законодательства.', status: 'draft', file_type: 'docx', file_size: 512000, created_by: { id: 1, email: 'user@example.com' }, created_at: '2026-06-21T09:00:00Z', updated_at: '2026-06-21T09:00:00Z' },
-  ]
-  nextOrderId = 3
 
-  orderDocumentLinks = [
-    { id: 1, order_id: 1, document_id: 1, link_type: 'approves', description: 'Приказ утверждает регламент' },
-  ]
-  nextOrderDocLinkId = 2
-
-  // Add reference to document 1's links
-  documentLinks.push({
-    id: nextLinkId++, source_document_id: 1, target_document_id: 1,
-    link_type: 'amends', is_manual: false, description: 'Приказ №45-ОД вносит изменения',
-    created_by: { id: 1, email: 'user@example.com' }, created_at: '2026-06-20T12:05:00Z',
-  })
-}
-seedOrders()
 
 // Seed some demo data
 function seedData() {
-  holdings = [
+  companies = [
     { id: 1, name: 'Холдинг-Центр', inn: '7701123456', legal_form: 'ООО', active_sources: ['pravo_gov_ru', 'docs_cntd_ru'], created_at: new Date().toISOString() },
     { id: 2, name: 'Технопарк', inn: '7702987654', legal_form: 'АО', active_sources: ['pravo_gov_ru'], created_at: new Date().toISOString() },
     { id: 3, name: 'Инновации Будущего', inn: null, legal_form: 'ПАО', active_sources: [], created_at: new Date().toISOString() },
   ]
-  nextHoldingId = 4
+  nextCompanyId = 4
 }
 seedData()
 
@@ -174,7 +129,7 @@ interface DocumentMock {
   title: string
   description: string | null
   status: DocumentMockStatus
-  holding_id: number
+  company_id: number
   created_by: { id: number; email: string }
   current_version: {
     id: number
@@ -200,7 +155,7 @@ let documents: DocumentMock[] = [
     title: 'Регламент разработки внутренних нормативных документов',
     description: 'Настоящий регламент определяет порядок разработки, согласования и утверждения внутренних нормативных документов холдинга.',
     status: 'approved',
-    holding_id: 1,
+    company_id: 1,
     created_by: { id: 1, email: 'user@example.com' },
     current_version: { id: 1, version_number: 3, file_type: 'docx', file_size: 256000, created_at: '2026-06-15T10:00:00Z' },
     stats: { sections_count: 8, tables_count: 3, terms_count: 12, abbreviations_count: 5, versions_count: 3 },
@@ -212,7 +167,7 @@ let documents: DocumentMock[] = [
     title: 'Инструкция по работе с системой электронного документооборота',
     description: null,
     status: 'review',
-    holding_id: 1,
+    company_id: 1,
     created_by: { id: 1, email: 'user@example.com' },
     current_version: { id: 2, version_number: 1, file_type: 'pdf', file_size: 5120000, created_at: '2026-06-18T14:00:00Z' },
     stats: { sections_count: 5, tables_count: 2, terms_count: 8, abbreviations_count: 3, versions_count: 1 },
@@ -224,7 +179,7 @@ let documents: DocumentMock[] = [
     title: 'Политика конфиденциальности и обработки персональных данных',
     description: 'Документ определяет порядок сбора, хранения и обработки персональных данных сотрудников и контрагентов.',
     status: 'draft',
-    holding_id: 1,
+    company_id: 1,
     created_by: { id: 1, email: 'user@example.com' },
     current_version: { id: 3, version_number: 1, file_type: 'docx', file_size: 128000, created_at: '2026-06-20T09:00:00Z' },
     stats: { sections_count: 4, tables_count: 1, terms_count: 0, abbreviations_count: 0, versions_count: 1 },
@@ -236,7 +191,7 @@ let documents: DocumentMock[] = [
     title: 'Регламент проведения внутреннего аудита',
     description: 'Порядок проведения плановых и внеплановых внутренних аудитов в подразделениях холдинга.',
     status: 'archived',
-    holding_id: 1,
+    company_id: 1,
     created_by: { id: 1, email: 'user@example.com' },
     current_version: { id: 4, version_number: 2, file_type: 'pdf', file_size: 3840000, created_at: '2026-05-01T12:00:00Z' },
     stats: { sections_count: 6, tables_count: 4, terms_count: 15, abbreviations_count: 7, versions_count: 2 },
@@ -250,7 +205,7 @@ let versionsNextId = 10
 // In-memory state for legislation sources
 let legislationSources: Array<{
   id: number
-  holding_id: number
+  company_id: number
   name: string
   source_type: 'template_url' | 'static_list' | 'custom_parser'
   url_template: string | null
@@ -265,7 +220,7 @@ let legislationSources: Array<{
 }> = [
   {
     id: 1,
-    holding_id: 1,
+    company_id: 1,
     name: 'Pravo.gov.ru',
     source_type: 'template_url',
     url_template: 'http://pravo.gov.ru/proxy/ips/?search={query}',
@@ -280,7 +235,7 @@ let legislationSources: Array<{
   },
   {
     id: 2,
-    holding_id: 1,
+    company_id: 1,
     name: 'Docs.cntd.ru',
     source_type: 'template_url',
     url_template: 'https://docs.cntd.ru/search?q={query}',
@@ -295,7 +250,7 @@ let legislationSources: Array<{
   },
   {
     id: 3,
-    holding_id: 1,
+    company_id: 1,
     name: 'Консультант+',
     source_type: 'static_list',
     url_template: null,
@@ -330,15 +285,6 @@ function buildImpactGraphFromMap(id: number, map: any) {
   const edges: any[] = []
   const seen = new Set<string>([docId])
 
-  // Incoming orders
-  for (const item of map.incoming.orders) {
-    const nodeId = `order-${item.id}`
-    if (!seen.has(nodeId)) {
-      nodes.push({ id: nodeId, label: item.title, type: 'order', orderId: item.id })
-      seen.add(nodeId)
-    }
-    edges.push({ source: nodeId, target: docId, label: item.type, type: item.type })
-  }
   // Incoming documents
   for (const item of map.incoming.documents) {
     const nodeId = `doc-${item.id}`
@@ -347,15 +293,6 @@ function buildImpactGraphFromMap(id: number, map: any) {
       seen.add(nodeId)
     }
     edges.push({ source: nodeId, target: docId, label: item.type, type: item.type })
-  }
-  // Outgoing orders
-  for (const item of map.outgoing.orders) {
-    const nodeId = `order-${item.id}`
-    if (!seen.has(nodeId)) {
-      nodes.push({ id: nodeId, label: item.title, type: 'order', orderId: item.id })
-      seen.add(nodeId)
-    }
-    edges.push({ source: docId, target: nodeId, label: item.type, type: item.type })
   }
   // Outgoing documents
   for (const item of map.outgoing.documents) {
@@ -370,11 +307,11 @@ function buildImpactGraphFromMap(id: number, map: any) {
   return { nodes, edges }
 }
 
-// Build available sources list for a holding (built-in + user-defined)
-function buildAvailableSources(holdingId: number, activeSourceIds: string[]) {
-  // User-defined sources for this holding
+// Build available sources list for a company (built-in + user-defined)
+function buildAvailableSources(companyId: number, activeSourceIds: string[]) {
+  // User-defined sources for this company
   const userSources = legislationSources
-    .filter((s) => s.holding_id === holdingId)
+    .filter((s) => s.company_id === companyId)
     .map((s) => ({
       id: `user_${s.id}`,
       display_name: s.name,
@@ -416,7 +353,7 @@ export const handlers = [
 
     // Create or update user
     if (!existingUser) {
-      users[email] = { id: nextUserId++, email, is_verified: false, active_holding_id: null }
+      users[email] = { id: nextUserId++, email, is_verified: false, active_company_id: null }
     }
 
     // Generate and store code
@@ -650,15 +587,15 @@ export const handlers = [
 
     const [userEmail, userData] = userEntry
 
-    let activeHolding = null
-    if (userData.active_holding_id) {
-      const holding = holdings.find((h) => h.id === userData.active_holding_id)
-      if (holding) {
-        activeHolding = {
-          id: holding.id,
-          name: holding.name,
-          inn: holding.inn,
-          legal_form: holding.legal_form,
+    let activeCompany = null
+    if (userData.active_company_id) {
+      const company = companies.find((h) => h.id === userData.active_company_id)
+      if (company) {
+        activeCompany = {
+          id: company.id,
+          name: company.name,
+          inn: company.inn,
+          legal_form: company.legal_form,
         }
       }
     }
@@ -667,12 +604,12 @@ export const handlers = [
       id: userData.id,
       email: userData.email,
       is_verified: userData.is_verified,
-      active_holding: activeHolding,
+      active_company: activeCompany,
     })
   }),
 
-  // ---- Holdings: List ----
-  http.get('/api/v1/holdings', async ({ request }) => {
+  // ---- Companies: List ----
+  http.get('/api/v1/companies', async ({ request }) => {
     await delay(200)
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -682,11 +619,11 @@ export const handlers = [
       )
     }
 
-    return HttpResponse.json(holdings)
+    return HttpResponse.json(companies)
   }),
 
-  // ---- Holdings: Create ----
-  http.post('/api/v1/holdings', async ({ request }) => {
+  // ---- Companies: Create ----
+  http.post('/api/v1/companies', async ({ request }) => {
     await delay(300)
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -706,36 +643,36 @@ export const handlers = [
       )
     }
 
-    if (holdings.some((h) => h.name.toLowerCase() === name.toLowerCase())) {
+    if (companies.some((h) => h.name.toLowerCase() === name.toLowerCase())) {
       return HttpResponse.json(
-        { detail: { code: 'CONFLICT', message: 'A holding with this name already exists', field: 'name' } },
+        { detail: { code: 'CONFLICT', message: 'A company with this name already exists', field: 'name' } },
         { status: 409 }
       )
     }
 
-    const newHolding = {
-      id: nextHoldingId++,
+    const newCompany = {
+      id: nextCompanyId++,
       name,
       inn: body.inn || null,
       legal_form: body.legal_form,
       active_sources: ['pravo_gov_ru', 'docs_cntd_ru'],
       created_at: new Date().toISOString(),
     }
-    holdings.push(newHolding)
+    companies.push(newCompany)
 
     return HttpResponse.json(
       {
-        id: newHolding.id,
-        name: newHolding.name,
-        inn: newHolding.inn,
-        legal_form: newHolding.legal_form,
+        id: newCompany.id,
+        name: newCompany.name,
+        inn: newCompany.inn,
+        legal_form: newCompany.legal_form,
       },
       { status: 201 }
     )
   }),
 
-  // ---- Holdings: Update ----
-  http.put('/api/v1/holdings/:id', async ({ request, params }) => {
+  // ---- Companies: Update ----
+  http.put('/api/v1/companies/:id', async ({ request, params }) => {
     await delay(300)
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -746,10 +683,10 @@ export const handlers = [
     }
 
     const id = parseInt(params.id as string)
-    const holding = holdings.find((h) => h.id === id)
-    if (!holding) {
+    const company = companies.find((h) => h.id === id)
+    if (!company) {
       return HttpResponse.json(
-        { detail: { code: 'NOT_FOUND', message: 'Holding not found', field: 'holding_id' } },
+        { detail: { code: 'NOT_FOUND', message: 'Company not found', field: 'company_id' } },
         { status: 404 }
       )
     }
@@ -758,27 +695,27 @@ export const handlers = [
 
     if (body.name !== undefined) {
       const name = body.name.trim()
-      if (holdings.some((h) => h.name.toLowerCase() === name.toLowerCase() && h.id !== id)) {
+      if (companies.some((h) => h.name.toLowerCase() === name.toLowerCase() && h.id !== id)) {
         return HttpResponse.json(
-          { detail: { code: 'CONFLICT', message: 'A holding with this name already exists', field: 'name' } },
+          { detail: { code: 'CONFLICT', message: 'A company with this name already exists', field: 'name' } },
           { status: 409 }
         )
       }
-      holding.name = name
+      company.name = name
     }
-    if (body.inn !== undefined) holding.inn = body.inn || null
-    if (body.legal_form !== undefined) holding.legal_form = body.legal_form
+    if (body.inn !== undefined) company.inn = body.inn || null
+    if (body.legal_form !== undefined) company.legal_form = body.legal_form
 
     return HttpResponse.json({
-      id: holding.id,
-      name: holding.name,
-      inn: holding.inn,
-      legal_form: holding.legal_form,
+      id: company.id,
+      name: company.name,
+      inn: company.inn,
+      legal_form: company.legal_form,
     })
   }),
 
-  // ---- Holdings: Get Profile ----
-  http.get('/api/v1/holdings/:id/profile', async ({ request, params }) => {
+  // ---- Companies: Get Profile ----
+  http.get('/api/v1/companies/:id/profile', async ({ request, params }) => {
     await delay(200)
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -789,28 +726,28 @@ export const handlers = [
     }
 
     const id = parseInt(params.id as string)
-    const holding = holdings.find((h) => h.id === id)
-    if (!holding) {
+    const company = companies.find((h) => h.id === id)
+    if (!company) {
       return HttpResponse.json(
-        { detail: { code: 'NOT_FOUND', message: 'Holding not found', field: 'holding_id' } },
+        { detail: { code: 'NOT_FOUND', message: 'Company not found', field: 'company_id' } },
         { status: 404 }
       )
     }
 
-    const availableSources = buildAvailableSources(id, holding.active_sources)
+    const availableSources = buildAvailableSources(id, company.active_sources)
 
     return HttpResponse.json({
-      id: holding.id,
-      name: holding.name,
-      inn: holding.inn,
-      legal_form: holding.legal_form,
-      active_sources: holding.active_sources,
+      id: company.id,
+      name: company.name,
+      inn: company.inn,
+      legal_form: company.legal_form,
+      active_sources: company.active_sources,
       available_sources: availableSources,
     })
   }),
 
-  // ---- Holdings: Update Profile ----
-  http.put('/api/v1/holdings/:id/profile', async ({ request, params }) => {
+  // ---- Companies: Update Profile ----
+  http.put('/api/v1/companies/:id/profile', async ({ request, params }) => {
     await delay(200)
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -821,10 +758,10 @@ export const handlers = [
     }
 
     const id = parseInt(params.id as string)
-    const holding = holdings.find((h) => h.id === id)
-    if (!holding) {
+    const company = companies.find((h) => h.id === id)
+    if (!company) {
       return HttpResponse.json(
-        { detail: { code: 'NOT_FOUND', message: 'Holding not found', field: 'holding_id' } },
+        { detail: { code: 'NOT_FOUND', message: 'Company not found', field: 'company_id' } },
         { status: 404 }
       )
     }
@@ -838,34 +775,34 @@ export const handlers = [
 
     if (body.name !== undefined) {
       const name = body.name.trim()
-      if (holdings.some((h) => h.name.toLowerCase() === name.toLowerCase() && h.id !== id)) {
+      if (companies.some((h) => h.name.toLowerCase() === name.toLowerCase() && h.id !== id)) {
         return HttpResponse.json(
-          { detail: { code: 'CONFLICT', message: 'A holding with this name already exists', field: 'name' } },
+          { detail: { code: 'CONFLICT', message: 'A company with this name already exists', field: 'name' } },
           { status: 409 }
         )
       }
-      holding.name = name
+      company.name = name
     }
-    if (body.inn !== undefined) holding.inn = body.inn || null
-    if (body.legal_form !== undefined) holding.legal_form = body.legal_form
+    if (body.inn !== undefined) company.inn = body.inn || null
+    if (body.legal_form !== undefined) company.legal_form = body.legal_form
     if (body.active_sources !== undefined) {
-      holding.active_sources = body.active_sources
+      company.active_sources = body.active_sources
     }
 
-    const availableSources = buildAvailableSources(id, holding.active_sources)
+    const availableSources = buildAvailableSources(id, company.active_sources)
 
     return HttpResponse.json({
-      id: holding.id,
-      name: holding.name,
-      inn: holding.inn,
-      legal_form: holding.legal_form,
-      active_sources: holding.active_sources,
+      id: company.id,
+      name: company.name,
+      inn: company.inn,
+      legal_form: company.legal_form,
+      active_sources: company.active_sources,
       available_sources: availableSources,
     })
   }),
 
-  // ---- Holdings: Delete ----
-  http.delete('/api/v1/holdings/:id', async ({ request, params }) => {
+  // ---- Companies: Delete ----
+  http.delete('/api/v1/companies/:id', async ({ request, params }) => {
     await delay(300)
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -876,28 +813,28 @@ export const handlers = [
     }
 
     const id = parseInt(params.id as string)
-    const index = holdings.findIndex((h) => h.id === id)
+    const index = companies.findIndex((h) => h.id === id)
     if (index === -1) {
       return HttpResponse.json(
-        { detail: { code: 'NOT_FOUND', message: 'Holding not found', field: 'holding_id' } },
+        { detail: { code: 'NOT_FOUND', message: 'Company not found', field: 'company_id' } },
         { status: 404 }
       )
     }
 
     // Check for user associations
-    if (userHoldings.some((uh) => uh.holding_id === id)) {
+    if (userCompanies.some((uh) => uh.company_id === id)) {
       return HttpResponse.json(
-        { detail: { code: 'CONFLICT', message: 'Cannot delete holding with existing user associations' } },
+        { detail: { code: 'CONFLICT', message: 'Cannot delete company with existing user associations' } },
         { status: 409 }
       )
     }
 
-    holdings.splice(index, 1)
+    companies.splice(index, 1)
     return new HttpResponse(null, { status: 204 })
   }),
 
-  // ---- User: Set Active Holding ----
-  http.put('/api/v1/user/holding', async ({ request }) => {
+  // ---- User: Set Active Company ----
+  http.put('/api/v1/user/company', async ({ request }) => {
     await delay(300)
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -917,32 +854,32 @@ export const handlers = [
     }
 
     const userId = parseInt(match[1])
-    const body = (await request.json()) as { holding_id: number }
+    const body = (await request.json()) as { company_id: number }
 
-    const holding = holdings.find((h) => h.id === body.holding_id)
-    if (!holding) {
+    const company = companies.find((h) => h.id === body.company_id)
+    if (!company) {
       return HttpResponse.json(
-        { detail: { code: 'NOT_FOUND', message: 'Holding not found', field: 'holding_id' } },
+        { detail: { code: 'NOT_FOUND', message: 'Company not found', field: 'company_id' } },
         { status: 404 }
       )
     }
 
-    // Auto-assign user to holding if not already a member
-    if (!userHoldings.some((uh) => uh.user_id === userId && uh.holding_id === body.holding_id)) {
-      userHoldings.push({ user_id: userId, holding_id: body.holding_id, role: 'member' })
+    // Auto-assign user to company if not already a member
+    if (!userCompanies.some((uh) => uh.user_id === userId && uh.company_id === body.company_id)) {
+      userCompanies.push({ user_id: userId, company_id: body.company_id, role: 'member' })
     }
 
-    // Update user's active holding
+    // Update user's active company
     const userEntry = Object.entries(users).find(([_, u]) => u.id === userId)
     if (userEntry) {
-      userEntry[1].active_holding_id = body.holding_id
+      userEntry[1].active_company_id = body.company_id
     }
 
     return HttpResponse.json({
-      message: 'Active holding set successfully',
-      active_holding: {
-        id: holding.id,
-        name: holding.name,
+      message: 'Active company set successfully',
+      active_company: {
+        id: company.id,
+        name: company.name,
       },
     })
   }),
@@ -982,7 +919,7 @@ export const handlers = [
       title: title || fileName.replace(/\.[^/.]+$/, ''),
       description: description || null,
       status: 'draft',
-      holding_id: 1,
+      company_id: 1,
       created_by: { id: 1, email: 'user@example.com' },
       current_version: {
         id: docId,
@@ -1652,318 +1589,34 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 })
   }),
 
-  // ---- Orders: Upload ----
-  http.post('/api/v1/orders/upload', async ({ request }) => {
-    await delay(500)
-    const authHeader = request.headers.get('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return HttpResponse.json(
-        { detail: { code: 'UNAUTHORIZED', message: 'Not authenticated', field: null } },
-        { status: 401 }
-      )
-    }
-
-    const formData = await request.formData()
-    const file = formData.get('file') as File | null
-    const title = formData.get('title') as string | null
-    const orderNumber = formData.get('order_number') as string | null
-    const orderDate = formData.get('order_date') as string | null
-    const description = formData.get('description') as string | null
-
-    if (!file) {
-      return HttpResponse.json(
-        { detail: { code: 'VALIDATION_ERROR', message: 'File is required', field: 'file' } },
-        { status: 422 }
-      )
-    }
-
-    if (!title) {
-      return HttpResponse.json(
-        { detail: { code: 'VALIDATION_ERROR', message: 'Title is required', field: 'title' } },
-        { status: 422 }
-      )
-    }
-
-    const fileName = file.name
-    const fileType = fileName.endsWith('.pdf') ? 'pdf' : 'docx'
-    const now = new Date().toISOString()
-
-    const newOrder = {
-      id: nextOrderId++,
-      title,
-      order_number: orderNumber || null,
-      order_date: orderDate || null,
-      description: description || null,
-      status: 'active' as const,
-      file_type: fileType,
-      file_size: file.size,
-      created_by: { id: 1, email: 'user@example.com' },
-      created_at: now,
-      updated_at: now,
-    }
-    orders.push(newOrder)
-
-    return HttpResponse.json(newOrder, { status: 201 })
-  }),
-
-  // ---- Orders: List ----
-  http.get('/api/v1/orders', async ({ request }) => {
-    await delay(300)
-    const authHeader = request.headers.get('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return HttpResponse.json(
-        { detail: { code: 'UNAUTHORIZED', message: 'Not authenticated', field: null } },
-        { status: 401 }
-      )
-    }
-
-    const url = new URL(request.url)
-    const status = url.searchParams.get('status')
-    const page = parseInt(url.searchParams.get('page') || '1')
-    const pageSize = parseInt(url.searchParams.get('page_size') || '10')
-
-    let filtered = [...orders]
-    if (status && status !== 'all') {
-      filtered = filtered.filter((o) => o.status === status)
-    }
-
-    const total = filtered.length
-    const pages = Math.ceil(total / pageSize)
-    const start = (page - 1) * pageSize
-    const items = filtered.slice(start, start + pageSize)
-
-    return HttpResponse.json({ items, total, page, page_size: pageSize, pages })
-  }),
-
-  // ---- Orders: Get Detail ----
-  http.get('/api/v1/orders/:id', async ({ request, params }) => {
-    await delay(200)
-    const authHeader = request.headers.get('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return HttpResponse.json(
-        { detail: { code: 'UNAUTHORIZED', message: 'Not authenticated', field: null } },
-        { status: 401 }
-      )
-    }
-
-    const id = parseInt(params.id as string)
-    const order = orders.find((o) => o.id === id)
-    if (!order) {
-      return HttpResponse.json(
-        { detail: { code: 'NOT_FOUND', message: 'Order not found', field: 'id' } },
-        { status: 404 }
-      )
-    }
-
-    return HttpResponse.json(order)
-  }),
-
-  // ---- Orders: Update ----
-  http.put('/api/v1/orders/:id', async ({ request, params }) => {
-    await delay(200)
-    const authHeader = request.headers.get('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return HttpResponse.json(
-        { detail: { code: 'UNAUTHORIZED', message: 'Not authenticated', field: null } },
-        { status: 401 }
-      )
-    }
-
-    const id = parseInt(params.id as string)
-    const order = orders.find((o) => o.id === id)
-    if (!order) {
-      return HttpResponse.json(
-        { detail: { code: 'NOT_FOUND', message: 'Order not found', field: 'id' } },
-        { status: 404 }
-      )
-    }
-
-    const body = (await request.json()) as { title?: string; order_number?: string; order_date?: string; description?: string }
-    if (body.title !== undefined) order.title = body.title
-    if (body.order_number !== undefined) order.order_number = body.order_number || null
-    if (body.order_date !== undefined) order.order_date = body.order_date || null
-    if (body.description !== undefined) order.description = body.description || null
-    order.updated_at = new Date().toISOString()
-
-    return HttpResponse.json(order)
-  }),
-
-  // ---- Orders: Cancel (soft-delete / archive) ----
-  http.delete('/api/v1/orders/:id', async ({ request, params }) => {
-    await delay(200)
-    const authHeader = request.headers.get('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return HttpResponse.json(
-        { detail: { code: 'UNAUTHORIZED', message: 'Not authenticated', field: null } },
-        { status: 401 }
-      )
-    }
-
-    const id = parseInt(params.id as string)
-    const order = orders.find((o) => o.id === id)
-    if (!order) {
-      return HttpResponse.json(
-        { detail: { code: 'NOT_FOUND', message: 'Order not found', field: 'id' } },
-        { status: 404 }
-      )
-    }
-
-    order.status = 'cancelled'
-    order.updated_at = new Date().toISOString()
-
-    return HttpResponse.json(order)
-  }),
-
-  // ---- Orders: Get Linked Documents ----
-  http.get('/api/v1/orders/:id/documents', async ({ request, params }) => {
-    await delay(200)
-    const authHeader = request.headers.get('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return HttpResponse.json(
-        { detail: { code: 'UNAUTHORIZED', message: 'Not authenticated', field: null } },
-        { status: 401 }
-      )
-    }
-
-    const orderId = parseInt(params.id as string)
-    const links = orderDocumentLinks
-      .filter((l) => l.order_id === orderId)
-      .map((l) => {
-        const doc = documents.find((d) => d.id === l.document_id)
-        return {
-          ...l,
-          document: doc
-            ? {
-                id: doc.id,
-                title: doc.title,
-                status: doc.status,
-                file_type: doc.current_version?.file_type || 'docx',
-                file_size: doc.current_version?.file_size || 0,
-                version_number: doc.current_version?.version_number || 1,
-                has_terms: (doc.stats?.terms_count || 0) > 0,
-                has_abbreviations: (doc.stats?.abbreviations_count || 0) > 0,
-                created_by: doc.created_by,
-                created_at: doc.created_at,
-                updated_at: doc.updated_at,
-              }
-            : undefined,
-        }
-      })
-
-    return HttpResponse.json({ items: links })
-  }),
-
-  // ---- Orders: Link to Document ----
-  http.post('/api/v1/orders/:id/documents', async ({ request, params }) => {
-    await delay(300)
-    const authHeader = request.headers.get('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return HttpResponse.json(
-        { detail: { code: 'UNAUTHORIZED', message: 'Not authenticated', field: null } },
-        { status: 401 }
-      )
-    }
-
-    const orderId = parseInt(params.id as string)
-    const order = orders.find((o) => o.id === orderId)
-    if (!order) {
-      return HttpResponse.json(
-        { detail: { code: 'NOT_FOUND', message: 'Order not found', field: 'id' } },
-        { status: 404 }
-      )
-    }
-
-    const body = (await request.json()) as { document_id: number; link_type: string; description?: string }
-    const doc = documents.find((d) => d.id === body.document_id)
-    if (!doc) {
-      return HttpResponse.json(
-        { detail: { code: 'NOT_FOUND', message: 'Document not found', field: 'document_id' } },
-        { status: 404 }
-      )
-    }
-
-    const newLink = {
-      id: nextOrderDocLinkId++,
-      order_id: orderId,
-      document_id: body.document_id,
-      link_type: body.link_type,
-      description: body.description || null,
-    }
-    orderDocumentLinks.push(newLink)
-
-    return HttpResponse.json(
-      {
-        ...newLink,
-        document: {
-          id: doc.id,
-          title: doc.title,
-          status: doc.status,
-          file_type: doc.current_version?.file_type || 'docx',
-          file_size: doc.current_version?.file_size || 0,
-          version_number: doc.current_version?.version_number || 1,
-          has_terms: (doc.stats?.terms_count || 0) > 0,
-          has_abbreviations: (doc.stats?.abbreviations_count || 0) > 0,
-          created_by: doc.created_by,
-          created_at: doc.created_at,
-          updated_at: doc.updated_at,
-        },
-      },
-      { status: 201 }
-    )
-  }),
-
-  // ---- Orders: Unlink from Document ----
-  http.delete('/api/v1/orders/:id/documents/:linkId', async ({ request, params }) => {
-    await delay(200)
-    const authHeader = request.headers.get('Authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return HttpResponse.json(
-        { detail: { code: 'UNAUTHORIZED', message: 'Not authenticated', field: null } },
-        { status: 401 }
-      )
-    }
-
-    const linkId = parseInt(params.linkId as string)
-    const index = orderDocumentLinks.findIndex((l) => l.id === linkId)
-    if (index === -1) {
-      return HttpResponse.json(
-        { detail: { code: 'NOT_FOUND', message: 'Link not found', field: 'linkId' } },
-        { status: 404 }
-      )
-    }
-
-    orderDocumentLinks.splice(index, 1)
-    return new HttpResponse(null, { status: 204 })
-  }),
-
   // ---- Legislation: Available Sources ----
   http.get('/api/v1/legislation/sources/available', async ({ request }) => {
     await delay(200)
 
-    // Get the auth header to determine holding
+    // Get the auth header to determine company
     const authHeader = request.headers.get('Authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return HttpResponse.json(BUILT_IN_SOURCES.map((s) => ({ ...s, is_active: false })))
     }
 
-    // Try to find the user's active holding
+    // Try to find the user's active company
     const token = authHeader.replace('Bearer ', '')
     const match = token.match(/mock_access_token_(\d+)_/)
-    let activeHoldingId: number | null = null
+    let activeCompanyId: number | null = null
 
     if (match) {
       const userId = parseInt(match[1])
       const userEntry = Object.entries(users).find(([_, u]) => u.id === userId)
       if (userEntry) {
-        activeHoldingId = userEntry[1].active_holding_id
+        activeCompanyId = userEntry[1].active_company_id
       }
     }
 
-    const holding = holdings.find((h) => h.id === activeHoldingId)
-    const activeSources = holding ? holding.active_sources : []
-    const holdingId = holding ? holding.id : 1
+    const company = companies.find((h) => h.id === activeCompanyId)
+    const activeSources = company ? company.active_sources : []
+    const companyId = company ? company.id : 1
 
-    const availableSources = buildAvailableSources(holdingId, activeSources)
+    const availableSources = buildAvailableSources(companyId, activeSources)
     return HttpResponse.json(availableSources)
   }),
 
@@ -2074,7 +1727,7 @@ export const handlers = [
     const now = new Date().toISOString()
     const newSource = {
       id: nextLegislationSourceId++,
-      holding_id: 1,
+      company_id: 1,
       name: body.name,
       source_type: body.source_type as 'template_url' | 'static_list' | 'custom_parser',
       url_template: body.url_template || null,
@@ -2231,16 +1884,12 @@ export const handlers = [
         document_id: 1,
         document_title: 'Регламент разработки внутренних нормативных документов',
         incoming: {
-          orders: [
-            { id: 1, title: 'Об утверждении регламента разработки ВНД', type: 'supersedes', date: '2026-06-20' },
-          ],
           documents: [
             { id: 4, title: 'Регламент проведения внутреннего аудита', type: 'references', date: '2026-05-01' },
             { id: 2, title: 'Инструкция по работе с СЭД', type: 'related', date: '2026-06-18' },
           ],
         },
         outgoing: {
-          orders: [],
           documents: [
             { id: 4, title: 'Регламент проведения внутреннего аудита', type: 'amends', date: '2026-06-15' },
           ],
@@ -2250,13 +1899,11 @@ export const handlers = [
         document_id: 2,
         document_title: 'Инструкция по работе с системой электронного документооборота',
         incoming: {
-          orders: [],
           documents: [
             { id: 1, title: 'Регламент разработки ВНД', type: 'references', date: '2026-06-15' },
           ],
         },
         outgoing: {
-          orders: [],
           documents: [],
         },
       },
@@ -2264,11 +1911,9 @@ export const handlers = [
         document_id: 3,
         document_title: 'Политика конфиденциальности и обработки персональных данных',
         incoming: {
-          orders: [],
           documents: [],
         },
         outgoing: {
-          orders: [],
           documents: [],
         },
       },
@@ -2276,13 +1921,11 @@ export const handlers = [
         document_id: 4,
         document_title: 'Регламент проведения внутреннего аудита',
         incoming: {
-          orders: [],
           documents: [
             { id: 1, title: 'Регламент разработки ВНД', type: 'supersedes', date: '2026-06-15' },
           ],
         },
         outgoing: {
-          orders: [],
           documents: [
             { id: 1, title: 'Регламент разработки ВНД', type: 'references', date: '2026-05-01' },
           ],
@@ -2295,8 +1938,8 @@ export const handlers = [
       return HttpResponse.json({
         document_id: id,
         document_title: 'Документ #' + id,
-        incoming: { orders: [], documents: [] },
-        outgoing: { orders: [], documents: [] },
+        incoming: { documents: [] },
+        outgoing: { documents: [] },
       })
     }
 
@@ -2312,16 +1955,12 @@ export const handlers = [
       1: {
         document_title: 'Регламент разработки внутренних нормативных документов',
         incoming: {
-          orders: [
-            { id: 1, title: 'Об утверждении регламента разработки ВНД', type: 'supersedes' },
-          ],
           documents: [
             { id: 4, title: 'Регламент проведения внутреннего аудита', type: 'references' },
             { id: 2, title: 'Инструкция по работе с СЭД', type: 'related' },
           ],
         },
         outgoing: {
-          orders: [],
           documents: [
             { id: 4, title: 'Регламент проведения внутреннего аудита', type: 'amends' },
           ],
@@ -2330,28 +1969,25 @@ export const handlers = [
       2: {
         document_title: 'Инструкция по работе с системой электронного документооборота',
         incoming: {
-          orders: [],
           documents: [
             { id: 1, title: 'Регламент разработки ВНД', type: 'references' },
           ],
         },
-        outgoing: { orders: [], documents: [] },
+        outgoing: { documents: [] },
       },
       3: {
         document_title: 'Политика конфиденциальности и обработки персональных данных',
-        incoming: { orders: [], documents: [] },
-        outgoing: { orders: [], documents: [] },
+        incoming: { documents: [] },
+        outgoing: { documents: [] },
       },
       4: {
         document_title: 'Регламент проведения внутреннего аудита',
         incoming: {
-          orders: [],
           documents: [
             { id: 1, title: 'Регламент разработки ВНД', type: 'supersedes' },
           ],
         },
         outgoing: {
-          orders: [],
           documents: [
             { id: 1, title: 'Регламент разработки ВНД', type: 'references' },
           ],

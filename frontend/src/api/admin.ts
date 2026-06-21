@@ -31,10 +31,10 @@ export async function unbanUser(id: number): Promise<void> {
   await apiClient.put(`/user/admin/users/${id}/unban`)
 }
 
-export async function setUserHoldingRole(
+export async function setUserCompanyRole(
   userId: number,
-  holdingId: number,
+  companyId: number,
   role: string
 ): Promise<void> {
-  await apiClient.put(`/user/admin/users/${userId}/holdings/${holdingId}?role=${role}`)
+  await apiClient.put(`/user/admin/users/${userId}/companies/${companyId}?role=${role}`)
 }

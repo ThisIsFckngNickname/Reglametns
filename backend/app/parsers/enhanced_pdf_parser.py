@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from app.services.parser_service import (
+from app.parsers.helpers import (
     ParseResult,
     _build_section_hierarchy,
     _extract_abbreviations_from_text,
@@ -482,7 +482,7 @@ class EnhancedPDFParser:
         self, table_data: list[list[Optional[str]]], section_id: Optional[int]
     ) -> dict:
         """Convert pdfplumber table data to result dict."""
-        from app.services.parser_service import _table_to_html
+        from app.parsers.helpers import _table_to_html
 
         headers: list[str] = []
         rows: list[list[str]] = []
@@ -621,7 +621,7 @@ class EnhancedPDFParser:
 
     def _rebuild_table_html(self, table: dict) -> str:
         """Rebuild HTML content from raw rows."""
-        from app.services.parser_service import _table_to_html
+        from app.parsers.helpers import _table_to_html
 
         rows = table.get("_raw_rows", [])
         headers: list[str] = []

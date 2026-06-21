@@ -31,15 +31,15 @@ from app.main import app
 from app.models.document import Document
 from app.models.document_abbreviation import DocumentAbbreviation
 from app.models.document_term import DocumentTerm
-from app.models.holding import Holding
+from app.models.company import Company
 from app.models.user import User
-from app.models.user_holding import UserHolding
+from app.models.user_company import UserCompany
 from app.core.security import create_access_token
 from app.core.rate_limiter import InMemoryRateLimiter, RateLimiter
 from app.services.cache_service import CacheService
 from app.services.email_service import ConsoleEmailService
 from app.services.generator_service import GeneratorService
-from app.services.gigachat_service import GigaChatClient, MOCK_RESPONSE
+from app.services.generators.response_handler import MOCK_RESPONSE
 from app.services.ollama_client import OllamaClient, ollama_client
 from app.services.llm_client import LLMClient
 from app.services.prompt_builder import PromptBuilder, prompt_builder
@@ -103,10 +103,10 @@ async def client(test_session: AsyncSession) -> AsyncGenerator[AsyncClient, None
 
 
 @pytest_asyncio.fixture
-async def holding_with_patterns(test_session: AsyncSession) -> Holding:
-    """Create a holding with style patterns from analysis."""
-    holding = Holding(
-        name="Pattern Holding",
+async def company_with_patterns(test_session: AsyncSession) -> Company:
+    """Create a company with style patterns from analysis."""
+    company = Company(
+        name="Pattern Company",
         inn="7701123456",
         legal_form="ООО",
         document_structure={
@@ -133,24 +133,24 @@ async def holding_with_patterns(test_session: AsyncSession) -> Holding:
         },
         use_gost=True,
     )
-    test_session.add(holding)
+    test_session.add(company)
     await test_session.flush()
-    return holding
+    return company
 
 
 @pytest_asyncio.fixture
-async def admin_user_with_holding(
-    test_session: AsyncSession, holding_with_patterns: Holding
+async def admin_user_with_company(
+    test_session: AsyncSession, company_with_patterns: Company
 ) -> User:
-    """Create an admin user with active holding."""
+    """Create an admin user with active company."""
     user = User(email="admin@patterns.ru", is_verified=True)
     test_session.add(user)
     await test_session.flush()
-    uh = UserHolding(
-        user_id=user.id, holding_id=holding_with_patterns.id, role="admin"
+    uc = UserCompany(
+        user_id=user.id, company_id=company_with_patterns.id, role="admin"
     )
-    test_session.add(uh)
-    user.active_holding_id = holding_with_patterns.id
+    test_session.add(uc)
+    user.active_company_id = company_with_patterns.id
     await test_session.flush()
     return user
 
@@ -164,13 +164,6 @@ class TestLLMClientInterface:
         """LLMClient should not be instantiable directly."""
         with pytest.raises(TypeError):
             LLMClient()  # type: ignore[abstract]
-
-    def test_gigachat_client_implements_llm_client(self):
-        """GigaChatClient should be a concrete implementation of LLMClient."""
-        client = GigaChatClient()
-        assert isinstance(client, LLMClient)
-        assert hasattr(client, "is_mock")
-        assert hasattr(client, "chat_completion")
 
     def test_ollama_client_implements_llm_client(self):
         """OllamaClient should be a concrete implementation of LLMClient."""
@@ -207,26 +200,12 @@ class TestGeneratorServiceAbstraction:
         assert service.llm.is_mock is True
 
     @pytest.mark.asyncio
-    async def test_generator_fallback_to_gigachat(self):
-        """Generator should use GigaChat when llm_provider is 'gigachat'."""
-        original_provider = settings.llm_provider
-        try:
-            settings.llm_provider = "gigachat"
-            service = GeneratorService()
-            assert isinstance(service.llm, GigaChatClient)
-        finally:
-            settings.llm_provider = original_provider
-
-    @pytest.mark.asyncio
     async def test_generator_uses_ollama_by_default(self):
-        """Generator should use OllamaClient when llm_provider is 'ollama'."""
-        original_provider = settings.llm_provider
-        try:
-            settings.llm_provider = "ollama"
-            service = GeneratorService()
-            assert isinstance(service.llm, OllamaClient)
-        finally:
-            settings.llm_provider = original_provider
+        """Generator should use OllamaClient by default."""
+        service = GeneratorService()
+        assert hasattr(service.llm, "chat_completion")
+        assert not service.llm.is_mock
+        assert isinstance(service.llm, OllamaClient)
 
 
 # ─── Test 3: Prompt builder with style patterns ──────────────────────────
@@ -236,12 +215,12 @@ class TestPromptBuilderWithPatterns:
 
     @pytest.mark.asyncio
     async def test_prompt_builder_includes_style_patterns(
-        self, holding_with_patterns: Holding
+        self, company_with_patterns: Company
     ):
         """Prompt should include style patterns when provided."""
         style_patterns_text = "Типичные фразы: «Настоящий документ устанавливает…» | Средняя длина предложения: ~12 слов."
         messages = prompt_builder.build_messages(
-            holding=holding_with_patterns,
+            company=company_with_patterns,
             context_description="Новый регламент",
             drafts_content=None,
             terms=[],
@@ -251,15 +230,15 @@ class TestPromptBuilderWithPatterns:
 
         system_content = messages[0]["content"]
         assert style_patterns_text in system_content
-        assert "СТИЛИСТИЧЕСКИЕ ПАТТЕРНЫ ХОЛДИНГА" in system_content
+        assert "СТИЛИСТИЧЕСКИЕ ПАТТЕРНЫ КОМПАНИИ" in system_content
 
     @pytest.mark.asyncio
     async def test_prompt_builder_without_style_patterns(
-        self, holding_with_patterns: Holding
+        self, company_with_patterns: Company
     ):
         """Prompt should handle missing style patterns gracefully."""
         messages = prompt_builder.build_messages(
-            holding=holding_with_patterns,
+            company=company_with_patterns,
             context_description="Новый регламент",
             drafts_content=None,
             terms=[],
@@ -267,16 +246,16 @@ class TestPromptBuilderWithPatterns:
         )
 
         system_content = messages[0]["content"]
-        # When no style_patterns provided, it should extract from holding
-        assert "СТИЛИСТИЧЕСКИЕ ПАТТЕРНЫ ХОЛДИНГА" in system_content
+        # When no style_patterns provided, it should extract from company
+        assert "СТИЛИСТИЧЕСКИЕ ПАТТЕРНЫ КОМПАНИИ" in system_content
 
     @pytest.mark.asyncio
     async def test_prompt_builder_detailed_template(
-        self, holding_with_patterns: Holding
+        self, company_with_patterns: Company
     ):
-        """The system prompt should ask for a detailed 20-50 page document."""
+        """The system prompt should ask for a complete and detailed document."""
         messages = prompt_builder.build_messages(
-            holding=holding_with_patterns,
+            company=company_with_patterns,
             context_description="Регламент закупок",
             drafts_content=None,
             terms=[],
@@ -284,18 +263,17 @@ class TestPromptBuilderWithPatterns:
         )
 
         system_content = messages[0]["content"]
-        assert "20-50 страниц" in system_content
-        assert "5-10 предложений" in system_content
-        assert "ОБЪЁМНЫМ" in system_content
-        assert "НЕ ИСПОЛЬЗУЙ шаблонные фразы" in system_content
+        assert "ПОЛНЫЙ и ПОДРОБНЫЙ" in system_content
+        assert "Используй черновики как ОСНОВУ" in system_content
+        assert "ВСЕГДА JSON" in system_content or "ОТВЕТ ДОЛЖЕН БЫТЬ ТОЛЬКО В ФОРМАТЕ JSON" in system_content
 
     @pytest.mark.asyncio
     async def test_prompt_builder_generated_with_style_patterns(
-        self, holding_with_patterns: Holding
+        self, company_with_patterns: Company
     ):
         """Test that _format_style_patterns generates proper text."""
         patterns = prompt_builder._format_style_patterns(
-            holding_with_patterns.style_settings
+            company_with_patterns.style_settings
         )
         assert "Типичные фразы" in patterns
         assert "Настоящий документ устанавливает" in patterns
@@ -354,7 +332,7 @@ class TestGeneratorWithCustomLLM:
 
     @pytest.mark.asyncio
     async def test_generate_with_mock_llm(
-        self, test_session: AsyncSession, admin_user_with_holding: User
+        self, test_session: AsyncSession, admin_user_with_company: User
     ):
         """Generator should work with a mock LLM client (full pipeline)."""
         mock_llm = AsyncMock(spec=LLMClient)
@@ -367,38 +345,35 @@ class TestGeneratorWithCustomLLM:
 
         result = await service.generate(
             context_description="Тестовый контекст с mock LLM",
-            user=admin_user_with_holding,
-            holding_id=admin_user_with_holding.active_holding_id,
+            user=admin_user_with_company,
+            company_id=admin_user_with_company.active_company_id,
             db=test_session,
         )
 
         assert result is not None
         assert result.status == "draft"
-        assert result.title == "Документ: Тестовый контекст с mock LLM"
+        assert result.title == "Регламент взаимодействия (демо-режим)"
         mock_llm.chat_completion.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_generate_llm_fallback_on_error(
-        self, test_session: AsyncSession, admin_user_with_holding: User
+        self, test_session: AsyncSession, admin_user_with_company: User
     ):
-        """Generator should fall back to mock if LLM raises an exception."""
+        """Generator should propagate LLM errors (no silent mock fallback)."""
         mock_llm = AsyncMock(spec=LLMClient)
         mock_llm.is_mock = False
         mock_llm.chat_completion.side_effect = RuntimeError("LLM failed")
 
         service = GeneratorService(llm_client=mock_llm)
 
-        result = await service.generate(
-            context_description="Падающий LLM",
-            user=admin_user_with_holding,
-            holding_id=admin_user_with_holding.active_holding_id,
-            db=test_session,
-        )
+        with pytest.raises(RuntimeError, match="LLM failed"):
+            await service.generate(
+                context_description="Падающий LLM",
+                user=admin_user_with_company,
+                company_id=admin_user_with_company.active_company_id,
+                db=test_session,
+            )
 
-        assert result is not None
-        assert result.status == "draft"
-        # Should use context_description for title since it fell back to mock
-        assert "Падающий LLM" in result.title
         mock_llm.chat_completion.assert_awaited_once()
 
 
@@ -410,17 +385,6 @@ class TestLongDocumentSettings:
     def test_default_max_tokens_increased(self):
         """Default max_tokens should be 48000 for long documents."""
         assert settings.generation_max_tokens == 48000
-
-    def test_gigachat_uses_high_max_tokens(self):
-        """GigaChatClient should support high max_tokens."""
-        client = GigaChatClient()
-        # The mock mode doesn't use max_tokens, but the method signature accepts it
-        # Just verify the method exists and accepts the param
-        import inspect
-        sig = inspect.signature(client.chat_completion)
-        assert "max_tokens" in sig.parameters
-        param = sig.parameters["max_tokens"]
-        assert param.default == 48000
 
     def test_ollama_uses_high_max_tokens(self):
         """OllamaClient should support high max_tokens via num_predict."""
@@ -455,10 +419,11 @@ class TestMaxTokensConfig:
         assert hasattr(settings, "generation_temperature")
         assert 0.0 <= settings.generation_temperature <= 1.0
 
-    def test_llm_provider_config(self):
-        """Settings should have llm_provider."""
-        assert hasattr(settings, "llm_provider")
-        assert settings.llm_provider in ("ollama", "gigachat", "mock")
+    def test_llm_defaults_to_ollama_client(self):
+        """GeneratorService should default to OllamaClient."""
+        service = GeneratorService()
+        assert isinstance(service.llm, OllamaClient)
+        assert hasattr(service.llm, "chat_completion")
 
     def test_ollama_settings(self):
         """Settings should have ollama config."""
@@ -476,10 +441,10 @@ class TestFullIntegration:
     async def test_generate_with_style_patterns(
         self,
         test_session: AsyncSession,
-        admin_user_with_holding: User,
-        holding_with_patterns: Holding,
+        admin_user_with_company: User,
+        company_with_patterns: Company,
     ):
-        """Generation should include style patterns from holding."""
+        """Generation should include style patterns from company."""
         mock_llm = AsyncMock(spec=LLMClient)
         mock_llm.is_mock = True
         mock_llm.chat_completion.return_value = json.dumps(
@@ -490,8 +455,8 @@ class TestFullIntegration:
 
         result = await service.generate(
             context_description="Регламент с паттернами",
-            user=admin_user_with_holding,
-            holding_id=admin_user_with_holding.active_holding_id,
+            user=admin_user_with_company,
+            company_id=admin_user_with_company.active_company_id,
             db=test_session,
         )
 
@@ -503,7 +468,7 @@ class TestFullIntegration:
         assert call_args is not None
         messages = call_args[0][0]  # first positional arg
         system_content = messages[0]["content"]
-        assert "СТИЛИСТИЧЕСКИЕ ПАТТЕРНЫ ХОЛДИНГА" in system_content
+        assert "СТИЛИСТИЧЕСКИЕ ПАТТЕРНЫ КОМПАНИИ" in system_content
         # Should contain at least one of the typical phrases from the fixture
         assert (
             "Настоящий документ устанавливает" in system_content
@@ -512,12 +477,12 @@ class TestFullIntegration:
 
     @pytest.mark.asyncio
     async def test_prompt_builder_compatibility(
-        self, holding_with_patterns: Holding
+        self, company_with_patterns: Company
     ):
         """Old-style call without style_patterns should still work."""
         # This is the old call pattern (without style_patterns)
         messages = prompt_builder.build_messages(
-            holding=holding_with_patterns,
+            company=company_with_patterns,
             context_description="Старый вызов",
             drafts_content=None,
             terms=[],
@@ -528,9 +493,9 @@ class TestFullIntegration:
         assert messages[0]["role"] == "system"
         assert messages[1]["role"] == "user"
 
-        # Style patterns section should be present (auto-extracted from holding)
+        # Style patterns section should be present (auto-extracted from company)
         system_content = messages[0]["content"]
-        assert "СТИЛИСТИЧЕСКИЕ ПАТТЕРНЫ ХОЛДИНГА" in system_content
+        assert "СТИЛИСТИЧЕСКИЕ ПАТТЕРНЫ КОМПАНИИ" in system_content
         # Even without explicit style_patterns, _build_system_prompt should
-        # auto-extract them from holding
-        assert "СТИЛИСТИЧЕСКИЕ ПАТТЕРНЫ ХОЛДИНГА" in system_content
+        # auto-extract them from company
+        assert "СТИЛИСТИЧЕСКИЕ ПАТТЕРНЫ КОМПАНИИ" in system_content
