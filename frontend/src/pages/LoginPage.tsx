@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Form, Input, Button, Card, Typography, Alert, Space } from 'antd'
-import { MailOutlined } from '@ant-design/icons'
+import { MailOutlined, LockOutlined } from '@ant-design/icons'
 import { Link, useNavigate } from 'react-router-dom'
 import { loginUser } from '../api/auth'
 import { getApiErrorMessage } from '../api/client'
+import { useAuthStore } from '../store/authStore'
 
 const { Title, Text } = Typography
 
@@ -11,20 +12,21 @@ export default function LoginPage() {
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [successEmail, setSuccessEmail] = useState<string | null>(null)
   const navigate = useNavigate()
+  const setTokens = useAuthStore((state) => state.setTokens)
 
-  const handleSubmit = async (values: { email: string }) => {
+  const handleSubmit = async (values: { email: string; password: string }) => {
     setLoading(true)
     setError(null)
-    setSuccessEmail(null)
 
     try {
-      await loginUser({ email: values.email })
-      setSuccessEmail(values.email)
-      setTimeout(() => {
-        navigate(`/verify-login?email=${encodeURIComponent(values.email)}`)
-      }, 1500)
+      const result = await loginUser({
+        email: values.email,
+        password: values.password,
+      })
+      // Save tokens and redirect to dashboard
+      setTokens(result.access_token)
+      navigate('/', { replace: true })
     } catch (err) {
       setError(getApiErrorMessage(err))
     } finally {
@@ -47,7 +49,7 @@ export default function LoginPage() {
           <div style={{ textAlign: 'center' }}>
             <Title level={2}>Вход</Title>
             <Text type="secondary">
-              Введите email для получения кода входа
+              Войдите в аккаунт для работы с регламентами
             </Text>
           </div>
 
@@ -59,15 +61,6 @@ export default function LoginPage() {
               showIcon
               closable
               onClose={() => setError(null)}
-            />
-          )}
-
-          {successEmail && (
-            <Alert
-              message="Код отправлен!"
-              description={`Проверочный код отправлен на ${successEmail}. Перенаправляем...`}
-              type="success"
-              showIcon
             />
           )}
 
@@ -93,6 +86,21 @@ export default function LoginPage() {
               />
             </Form.Item>
 
+            <Form.Item
+              name="password"
+              label="Пароль"
+              rules={[
+                { required: true, message: 'Введите пароль' },
+              ]}
+            >
+              <Input.Password
+                prefix={<LockOutlined />}
+                placeholder="Введите пароль"
+                size="large"
+                disabled={loading}
+              />
+            </Form.Item>
+
             <Form.Item>
               <Button
                 type="primary"
@@ -101,7 +109,7 @@ export default function LoginPage() {
                 block
                 size="large"
               >
-                Получить код
+                Войти
               </Button>
             </Form.Item>
           </Form>

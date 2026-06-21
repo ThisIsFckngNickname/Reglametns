@@ -12,6 +12,7 @@ import {
   Space,
   Popconfirm,
   Tag,
+  Tabs,
 } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, ProfileOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -188,6 +189,17 @@ export default function AdminHoldingsPage() {
   return (
     <div>
       <Card>
+        <Tabs
+          activeKey="holdings"
+          onChange={(key) => {
+            if (key === 'users') navigate('/admin/users')
+          }}
+          items={[
+            { key: 'holdings', label: '🏢 Холдинги' },
+            { key: 'users', label: '👤 Пользователи' },
+          ]}
+          style={{ marginBottom: 0 }}
+        />
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <div
             style={{

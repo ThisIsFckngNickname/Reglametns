@@ -1,6 +1,6 @@
 from typing import AsyncGenerator
 
-from fastapi import Depends, Header, Request
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,14 +12,8 @@ from app.database import get_db
 from app.models.user import User
 from app.models.user_holding import UserHolding
 from app.services.auth_service import AuthService
-from app.services.email_service import ConsoleEmailService, EmailService
 
 security_scheme = HTTPBearer(auto_error=False)
-
-
-async def get_email_service(request: Request) -> EmailService:
-    """Get the email service from app state."""
-    return request.app.state.email_service
 
 
 async def get_rate_limiter(request: Request) -> RateLimiter:
@@ -52,9 +46,9 @@ async def get_current_user(
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
-    if user is None or not user.is_verified:
+    if user is None:
         raise UnauthorizedException(
-            message="User not found or not verified"
+            message="User not found"
         )
 
     return user
@@ -68,7 +62,7 @@ async def require_admin(
     stmt = select(UserHolding).where(
         UserHolding.user_id == user.id,
         UserHolding.role == "admin",
-    )
+    ).limit(1)
     result = await db.execute(stmt)
     admin_entry = result.scalar_one_or_none()
 
@@ -82,10 +76,9 @@ async def require_admin(
 
 async def get_auth_service(
     db: AsyncSession = Depends(get_db),
-    email_service: EmailService = Depends(get_email_service),
 ) -> AsyncGenerator[AuthService, None]:
     """Get an AuthService instance."""
-    service = AuthService(db=db, email_service=email_service)
+    service = AuthService(db=db)
     yield service
 
 

@@ -110,6 +110,7 @@ If ambiguous, choose the simplest extensible design and state assumptions clearl
 - Preserve backward compatibility unless breaking change is approved.
 - Never hardcode secrets.
 - Never claim tests were run if they were not.
+- Before marking any task as complete, independently verify correctness: run typecheck, build, lint, and all relevant tests. Trace through the full logic flow to confirm there are no gaps. Do not rely on the user to catch defects after delivery.
 
 ---
 

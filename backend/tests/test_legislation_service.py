@@ -110,15 +110,17 @@ class TestPravoGovRuAdapter:
 # ─── API Integration Tests ─────────────────────────────────────────
 
 class TestLegislationAPI:
-    """Tests for GET /api/v1/legislation/* endpoints."""
+    """Tests for /api/v1/legislation/* endpoints."""
+
+    # ── Adapter sources (built-in) ───────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_list_sources(
+    async def test_list_adapter_sources(
         self, client: AsyncClient, admin_user: User, admin_token: str
     ):
-        """GET /api/v1/legislation/sources should return source list."""
+        """GET /api/v1/legislation/sources/adapters should return adapter list."""
         response = await client.get(
-            "/api/v1/legislation/sources",
+            "/api/v1/legislation/sources/adapters",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert response.status_code == 200
@@ -161,6 +163,203 @@ class TestLegislationAPI:
             data = response.json()
             assert "query" in data
             assert "source" in data
-            assert "results" in data
+            assert "items" in data
             assert "total" in data
             assert "cached" in data
+
+    # ── User-defined sources CRUD ───────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_list_user_sources(
+        self, client: AsyncClient, admin_token: str
+    ):
+        """GET /api/v1/legislation/sources should return user-defined sources as array."""
+        response = await client.get(
+            "/api/v1/legislation/sources",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) >= 3  # 3 seeded demo sources
+        # First source should be Pravo.gov.ru
+        assert data[0]["name"] == "Pravo.gov.ru"
+        assert data[0]["source_type"] == "template_url"
+
+    @pytest.mark.asyncio
+    async def test_create_user_source(
+        self, client: AsyncClient, admin_token: str
+    ):
+        """POST /api/v1/legislation/sources should create a new source."""
+        payload = {
+            "name": "Test Source",
+            "source_type": "template_url",
+            "url_template": "https://example.com/search?q={query}",
+            "parser_type": "json",
+            "selector": ".result",
+        }
+        response = await client.post(
+            "/api/v1/legislation/sources",
+            json=payload,
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Test Source"
+        assert data["source_type"] == "template_url"
+        assert data["url_template"] == "https://example.com/search?q={query}"
+        assert data["id"] is not None
+        assert "created_at" in data
+        assert "updated_at" in data
+
+    @pytest.mark.asyncio
+    async def test_get_user_source_by_id(
+        self, client: AsyncClient, admin_token: str
+    ):
+        """GET /api/v1/legislation/sources/:id should return the source."""
+        # First list to get an ID
+        list_resp = await client.get(
+            "/api/v1/legislation/sources",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        sources = list_resp.json()
+        assert len(sources) > 0
+        source_id = sources[0]["id"]
+
+        response = await client.get(
+            f"/api/v1/legislation/sources/{source_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == source_id
+        assert data["name"] == sources[0]["name"]
+
+    @pytest.mark.asyncio
+    async def test_get_user_source_not_found(
+        self, client: AsyncClient, admin_token: str
+    ):
+        """GET /api/v1/legislation/sources/:id with invalid id returns 404."""
+        response = await client.get(
+            "/api/v1/legislation/sources/99999",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 404
+        detail = response.json()["detail"]
+        assert detail["code"] == "NOT_FOUND"
+
+    @pytest.mark.asyncio
+    async def test_update_user_source(
+        self, client: AsyncClient, admin_token: str
+    ):
+        """PUT /api/v1/legislation/sources/:id should update fields."""
+        # Create a source first
+        create_resp = await client.post(
+            "/api/v1/legislation/sources",
+            json={"name": "Update Test", "source_type": "static_list"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        src = create_resp.json()
+        source_id = src["id"]
+
+        payload = {"name": "Updated Name", "description": "New description"}
+        response = await client.put(
+            f"/api/v1/legislation/sources/{source_id}",
+            json=payload,
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "Updated Name"
+        assert data["description"] == "New description"
+        # Fields not sent should retain original values
+        assert data["source_type"] == "static_list"
+
+    @pytest.mark.asyncio
+    async def test_update_user_source_not_found(
+        self, client: AsyncClient, admin_token: str
+    ):
+        """PUT /api/v1/legislation/sources/:id with invalid id returns 404."""
+        response = await client.put(
+            "/api/v1/legislation/sources/99999",
+            json={"name": "Nope"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_user_source(
+        self, client: AsyncClient, admin_token: str
+    ):
+        """DELETE /api/v1/legislation/sources/:id should delete the source."""
+        # Create a source first
+        create_resp = await client.post(
+            "/api/v1/legislation/sources",
+            json={"name": "Delete Me", "source_type": "template_url"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        src = create_resp.json()
+        source_id = src["id"]
+
+        response = await client.delete(
+            f"/api/v1/legislation/sources/{source_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 204
+
+        # Verify it's gone
+        get_resp = await client.get(
+            f"/api/v1/legislation/sources/{source_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert get_resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_user_source_not_found(
+        self, client: AsyncClient, admin_token: str
+    ):
+        """DELETE /api/v1/legislation/sources/:id with invalid id returns 404."""
+        response = await client.delete(
+            "/api/v1/legislation/sources/99999",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_search_user_source(
+        self, client: AsyncClient, admin_token: str
+    ):
+        """POST /api/v1/legislation/sources/:id/search should return mock results."""
+        list_resp = await client.get(
+            "/api/v1/legislation/sources",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        sources = list_resp.json()
+        assert len(sources) > 0
+        source_id = sources[0]["id"]
+
+        response = await client.post(
+            f"/api/v1/legislation/sources/{source_id}/search",
+            json={"query": "налог"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) > 0
+        assert "title" in data[0]
+        assert "url" in data[0]
+        assert "snippet" in data[0]
+        assert data[0]["source_name"] == sources[0]["name"]
+
+    @pytest.mark.asyncio
+    async def test_search_user_source_not_found(
+        self, client: AsyncClient, admin_token: str
+    ):
+        """POST /api/v1/legislation/sources/:id/search with invalid id returns 404."""
+        response = await client.post(
+            "/api/v1/legislation/sources/99999/search",
+            json={"query": "test"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 404

@@ -19,6 +19,7 @@ from typing import Optional
 import httpx
 
 from app.config import settings
+from app.services.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ MOCK_RESPONSE = {
 }
 
 
-class GigaChatClient:
+class GigaChatClient(LLMClient):
     """Client for GigaChat Pro API."""
 
     def __init__(self):
@@ -168,7 +169,7 @@ class GigaChatClient:
         self,
         messages: list[dict],
         temperature: float = 0.3,
-        max_tokens: int = 8000,
+        max_tokens: int = settings.generation_max_tokens,
     ) -> str:
         """Send chat completion request to GigaChat Pro.
 

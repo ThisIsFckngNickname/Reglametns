@@ -21,6 +21,7 @@ from app.models import (
     DocumentTerm,
     DocumentAbbreviation,
     DocumentLink,
+    DocumentStatusLog,
     Order,
     OrderDocumentLink,
 )  # noqa: F401

@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     # Local storage
     upload_dir: str = "./uploads"
 
+    # LLM provider selection: "ollama", "gigachat", "mock"
+    llm_provider: str = "ollama"  # will fall back to mock if connection fails
+
+    # Ollama settings
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "qwen2.5:14b"  # or "qwen2.5:7b" for CPU
+
     # GigaChat settings (optional — leave empty for mock mode)
     gigachat_client_id: str = ""
     gigachat_client_secret: str = ""
@@ -36,7 +43,7 @@ class Settings(BaseSettings):
     gigachat_api_url: str = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
     gigachat_verify_ssl: bool = False
     generation_timeout: int = 120  # seconds
-    generation_max_tokens: int = 8000
+    generation_max_tokens: int = 48000
     generation_temperature: float = 0.3
 
     # SMTP settings for email sending

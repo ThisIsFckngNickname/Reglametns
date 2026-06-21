@@ -37,6 +37,8 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    from app.database import engine
+    await engine.dispose()
     await redis_service.disconnect()
     logger.info("Shutting down SRP API...")
 

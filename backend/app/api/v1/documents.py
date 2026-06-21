@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_active_holding
+from app.api.deps import get_current_user, require_active_holding, require_admin
 from app.core.exceptions import NotFoundException
 from app.database import get_db
 from app.models.document import Document
@@ -98,6 +98,7 @@ async def update_document(
         data=body,
         holding_id=user.active_holding_id,
         db=db,
+        user_id=user.id,
     )
 
 
@@ -111,6 +112,24 @@ async def archive_document(
     await document_service.archive_document(
         id=document_id,
         holding_id=user.active_holding_id,
+        db=db,
+    )
+    return Response(status_code=204)
+
+
+@router.delete("/admin/{document_id}", status_code=204)
+async def hard_delete_document(
+    document_id: int,
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete a document and all its versions from DB and storage.
+
+    Admin-only endpoint. Requires admin privileges in any holding.
+    This is a hard delete - unlike the regular DELETE which only archives.
+    """
+    await document_service.hard_delete_document(
+        id=document_id,
         db=db,
     )
     return Response(status_code=204)

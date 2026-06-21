@@ -54,20 +54,37 @@ class DocumentUpdate(BaseModel):
         return v
 
 
+class DocumentStats(BaseModel):
+    """Statistics about a document."""
+    sections_count: int = 0
+    tables_count: int = 0
+    terms_count: int = 0
+    abbreviations_count: int = 0
+    versions_count: int = 0
+
+
+class DocumentVersionBrief(BaseModel):
+    """Brief information about a document version for display."""
+    id: int
+    version_number: int
+    file_type: str
+    file_size: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class DocumentResponse(BaseModel):
     id: int
     holding_id: int
     title: str
     description: Optional[str] = None
     status: str
-    created_by: Optional[int] = None
+    created_by: Optional[dict] = None  # {"id": int, "email": str}
+    current_version: Optional[DocumentVersionBrief] = None
+    stats: DocumentStats = DocumentStats()
     created_at: datetime
     updated_at: datetime
-    versions_count: int = 0
-    sections_count: int = 0
-    tables_count: int = 0
-    terms_count: int = 0
-    abbreviations_count: int = 0
 
     model_config = {"from_attributes": True}
 

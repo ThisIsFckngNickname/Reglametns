@@ -17,11 +17,31 @@ from tests.test_documents import _get_sample_path
 class TestImpactMap:
     """Tests for GET /api/v1/documents/{id}/impact."""
 
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _count_items(data: dict) -> int:
+        """Count total items across incoming + outgoing."""
+        inc = data["incoming"]
+        out = data["outgoing"]
+        return (
+            len(inc["orders"])
+            + len(inc["documents"])
+            + len(out["orders"])
+            + len(out["documents"])
+        )
+
+    # ------------------------------------------------------------------
+    # Tests
+    # ------------------------------------------------------------------
+
     @pytest.mark.asyncio
     async def test_impact_map_empty(
         self, client: AsyncClient, admin_user: User, admin_token: str
     ):
-        """Document with no relations should return empty lists."""
+        """Document with no relations should return empty groups."""
         docx_path = _get_sample_path("sample.docx")
         with open(docx_path, "rb") as f:
             resp = await client.post(
@@ -39,15 +59,19 @@ class TestImpactMap:
         assert response.status_code == 200
         data = response.json()
         assert data["document_id"] == doc_id
-        assert data["document_links"] == []
-        assert data["order_links"] == []
+
+        # All groups should be empty
+        assert data["incoming"]["orders"] == []
+        assert data["incoming"]["documents"] == []
+        assert data["outgoing"]["orders"] == []
+        assert data["outgoing"]["documents"] == []
         assert data["total_relations"] == 0
 
     @pytest.mark.asyncio
     async def test_impact_map_with_document_links(
         self, client: AsyncClient, admin_user: User, admin_token: str, test_session: AsyncSession
     ):
-        """Impact map should include document links."""
+        """Impact map should include document links in correct direction."""
         # Upload two documents
         docx_path = _get_sample_path("sample.docx")
         with open(docx_path, "rb") as f:
@@ -68,7 +92,7 @@ class TestImpactMap:
             )
         doc2_id = resp2.json()["id"]
 
-        # Create a link between them
+        # Create a link: doc1 -> doc2 (references)
         link_resp = await client.post(
             f"/api/v1/documents/{doc1_id}/links",
             json={
@@ -80,7 +104,7 @@ class TestImpactMap:
         )
         assert link_resp.status_code == 201
 
-        # Get impact map for doc1
+        # Get impact map for doc1 (source → target = outgoing)
         response = await client.get(
             f"/api/v1/documents/{doc1_id}/impact",
             headers={"Authorization": f"Bearer {admin_token}"},
@@ -88,16 +112,34 @@ class TestImpactMap:
         assert response.status_code == 200
         data = response.json()
         assert data["document_id"] == doc1_id
-        assert len(data["document_links"]) == 1
-        assert data["document_links"][0]["linked_document_id"] == doc2_id
-        assert data["document_links"][0]["link_type"] == "references"
         assert data["total_relations"] == 1
+
+        # Should be in outgoing.documents
+        assert len(data["outgoing"]["documents"]) == 1
+        item = data["outgoing"]["documents"][0]
+        assert item["title"] == "Target Doc"
+        assert item["type"] == "references"
+        assert item["document_id"] == doc2_id
+
+        # Get impact map for doc2 (incoming)
+        response2 = await client.get(
+            f"/api/v1/documents/{doc2_id}/impact",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response2.status_code == 200
+        data2 = response2.json()
+        assert data2["total_relations"] == 1
+        assert len(data2["incoming"]["documents"]) == 1
+        item2 = data2["incoming"]["documents"][0]
+        assert item2["title"] == "Source Doc"
+        assert item2["type"] == "references"
+        assert item2["document_id"] == doc1_id
 
     @pytest.mark.asyncio
     async def test_impact_map_with_order_links(
         self, client: AsyncClient, admin_user: User, admin_token: str, test_session: AsyncSession
     ):
-        """Impact map should include order links."""
+        """Impact map should include order links in incoming.orders."""
         # Upload a document
         docx_path = _get_sample_path("sample.docx")
         with open(docx_path, "rb") as f:
@@ -109,7 +151,7 @@ class TestImpactMap:
             )
         doc_id = resp.json()["id"]
 
-        # Upload an order (the API requires file upload)
+        # Upload an order
         with open(docx_path, "rb") as f:
             order_resp = await client.post(
                 "/api/v1/orders/upload",
@@ -140,10 +182,14 @@ class TestImpactMap:
         assert response.status_code == 200
         data = response.json()
         assert data["document_id"] == doc_id
-        assert len(data["order_links"]) == 1
-        assert data["order_links"][0]["order_id"] == order_id
-        assert data["order_links"][0]["link_type"] == "amends"
         assert data["total_relations"] == 1
+
+        # Should be in incoming.orders
+        assert len(data["incoming"]["orders"]) == 1
+        item = data["incoming"]["orders"][0]
+        assert item["order_id"] == order_id
+        assert item["title"] == "Test Order"
+        assert item["type"] == "amends"
 
     @pytest.mark.asyncio
     async def test_impact_map_bidirectional(
@@ -183,7 +229,9 @@ class TestImpactMap:
             headers={"Authorization": f"Bearer {admin_token}"},
         )
 
-        # Impact for A should see both links
+        # Impact for A should see both links:
+        #   outgoing: A -> B (references)
+        #   incoming: B -> A (related)
         response = await client.get(
             f"/api/v1/documents/{doc_a}/impact",
             headers={"Authorization": f"Bearer {admin_token}"},
@@ -191,6 +239,16 @@ class TestImpactMap:
         assert response.status_code == 200
         data = response.json()
         assert data["total_relations"] == 2
+
+        outgoing = data["outgoing"]["documents"]
+        incoming = data["incoming"]["documents"]
+        assert len(outgoing) == 1
+        assert len(incoming) == 1
+        assert outgoing[0]["document_id"] == doc_b  # A -> B
+        assert outgoing[0]["type"] == "references"
+        # incoming: B -> A, linked document is B (the source that links to A)
+        assert incoming[0]["document_id"] == doc_b
+        assert incoming[0]["type"] == "related"
 
     @pytest.mark.asyncio
     async def test_impact_map_requires_auth(self, client: AsyncClient):
@@ -260,8 +318,8 @@ class TestImpactMap:
         # Validate node structure
         for node in data["graph"]["nodes"]:
             assert "id" in node
+            assert "label" in node  # frontend uses "label"
             assert "type" in node
-            assert "title" in node
             assert "status" in node
             assert node["type"] in ("document", "order")
 
@@ -352,3 +410,54 @@ class TestImpactMap:
         assert len(data["graph"]["nodes"]) == 1
         assert len(data["graph"]["edges"]) == 0
         assert data["graph"]["nodes"][0]["id"] == f"doc:{doc_id}"
+
+    # ------------------------------------------------------------------
+    # Graph endpoint tests
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_impact_graph_endpoint(
+        self, client: AsyncClient, admin_user: User, admin_token: str
+    ):
+        """GET /documents/{id}/impact/graph should return ImpactGraphResponse."""
+        from tests.test_documents import _get_sample_path
+
+        docx_path = _get_sample_path("sample.docx")
+        with open(docx_path, "rb") as f:
+            resp = await client.post(
+                "/api/v1/documents/upload",
+                files={"file": ("sample.docx", f, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+                data={"title": "Graph Endpoint Test"},
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+        doc_id = resp.json()["id"]
+
+        response = await client.get(
+            f"/api/v1/documents/{doc_id}/impact/graph",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "nodes" in data
+        assert "edges" in data
+        assert len(data["nodes"]) == 1  # only center node
+        assert data["nodes"][0]["id"] == f"doc:{doc_id}"
+
+    @pytest.mark.asyncio
+    async def test_impact_graph_endpoint_requires_auth(
+        self, client: AsyncClient
+    ):
+        """Graph endpoint without auth should return 401."""
+        response = await client.get("/api/v1/documents/1/impact/graph")
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_impact_graph_endpoint_not_found(
+        self, client: AsyncClient, admin_token: str
+    ):
+        """Graph endpoint for non-existent document should return 404."""
+        response = await client.get(
+            "/api/v1/documents/99999/impact/graph",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert response.status_code == 404

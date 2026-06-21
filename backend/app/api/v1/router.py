@@ -9,6 +9,7 @@ from app.api.v1.links import router as links_router
 from app.api.v1.orders import router as orders_router
 from app.api.v1.legislation import router as legislation_router
 from app.api.v1.impact import router as impact_router
+from app.api.v1.mcp import router as mcp_router
 
 router = APIRouter(prefix="/api/v1")
 
@@ -21,3 +22,4 @@ router.include_router(links_router)
 router.include_router(orders_router)
 router.include_router(legislation_router)
 router.include_router(impact_router)
+router.include_router(mcp_router)

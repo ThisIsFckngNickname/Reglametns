@@ -2,49 +2,40 @@
 Pydantic schemas for Impact Map (document relations).
 """
 
-from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel
 
 
-class DocumentLinkImpact(BaseModel):
-    """A link from a DocumentLink record."""
+class ImpactMapItem(BaseModel):
+    """A single relation item in the impact map (matches frontend ImpactItem type).
 
-    id: int
-    linked_document_id: int
-    linked_document_title: str
-    linked_document_status: str
-    link_type: str
-    is_manual: bool
-    description: Optional[str] = None
-    created_at: datetime
+    Contains only the fields the frontend needs for table display.
+    Extra fields (document_id, order_id) are included for test assertions
+    and future extensibility but are not consumed by the frontend.
+    """
+    id: int  # link record id (DocumentLink.id or OrderDocumentLink.id)
+    title: str  # linked entity title
+    type: str  # link_type e.g. "amends", "references", "supersedes", "related"
+    date: Optional[str] = None  # ISO date string
+    document_id: Optional[int] = None
+    order_id: Optional[int] = None
 
-    model_config = {"from_attributes": True}
 
-
-class OrderLinkImpact(BaseModel):
-    """A link from an OrderDocumentLink record."""
-
-    id: int
-    order_id: int
-    order_title: str
-    order_number: Optional[str] = None
-    order_date: Optional[date] = None
-    order_status: str = "active"
-    link_type: str
-    description: Optional[str] = None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
+class ImpactMapDirection(BaseModel):
+    """Links grouped by entity type for one direction (incoming or outgoing)."""
+    orders: list[ImpactMapItem] = []
+    documents: list[ImpactMapItem] = []
 
 
 class GraphNode(BaseModel):
     """A node in the visualisation graph."""
     id: str
+    label: str  # display text for cytoscape node
     type: str  # "document" or "order"
-    title: str
     status: str
+    documentId: Optional[int] = None
+    orderId: Optional[int] = None
 
 
 class GraphEdge(BaseModel):
@@ -55,12 +46,18 @@ class GraphEdge(BaseModel):
     label: str
 
 
+class ImpactGraphResponse(BaseModel):
+    """Graph data (nodes + edges) for the impact visualisation."""
+    nodes: list[GraphNode] = []
+    edges: list[GraphEdge] = []
+
+
 class ImpactMapResponse(BaseModel):
     """Aggregated impact map for a document."""
 
     document_id: int
     document_title: str
-    document_links: list[DocumentLinkImpact] = []
-    order_links: list[OrderLinkImpact] = []
+    incoming: ImpactMapDirection = ImpactMapDirection()
+    outgoing: ImpactMapDirection = ImpactMapDirection()
     total_relations: int = 0
     graph: Optional[dict] = None  # {"nodes": [...], "edges": [...]}

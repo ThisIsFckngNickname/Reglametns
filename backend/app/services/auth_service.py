@@ -3,66 +3,68 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import (
-    ConflictException,
-    ForbiddenException,
-    NotFoundException,
-    UnauthorizedException,
-)
+from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException, UnauthorizedException
 from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.models.holding import Holding
 from app.models.user import User
 from app.models.user_holding import UserHolding
 from app.schemas.holding import HoldingBrief
-from app.services.code_service import CodeService
-from app.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
 
 
 class AuthService:
-    """Service for authentication operations."""
+    """Service for authentication operations with email/password."""
 
-    def __init__(self, db: AsyncSession, email_service: EmailService):
+    def __init__(self, db: AsyncSession):
         self.db = db
-        self.email_service = email_service
-        self.code_service = CodeService()
 
-    async def register(self, email: str) -> dict:
-        """Register a new user or resend code for unverified user."""
-        # Check if user exists and is verified
+    async def register(self, email: str, password: str) -> dict:
+        """Register a new user with email and password. Returns tokens."""
+        # Check if user exists
         stmt = select(User).where(User.email == email)
         result = await self.db.execute(stmt)
         user = result.scalar_one_or_none()
 
-        if user and user.is_verified:
+        if user:
             raise ConflictException(
                 message="A user with this email already exists",
                 field="email",
             )
 
-        if user is None:
-            # Create new user
-            user = User(email=email, is_verified=False)
-            self.db.add(user)
+        # Create new user
+        user = User(email=email, is_verified=True)
+        user.set_password(password)
+        self.db.add(user)
+        await self.db.flush()
+
+        # Auto-assign to the first available holding
+        first_holding_stmt = select(Holding).order_by(Holding.id).limit(1)
+        first_holding_result = await self.db.execute(first_holding_stmt)
+        first_holding = first_holding_result.scalar_one_or_none()
+        if first_holding:
+            user_holding = UserHolding(
+                user_id=user.id,
+                holding_id=first_holding.id,
+                role="member",
+            )
+            self.db.add(user_holding)
+            user.active_holding_id = first_holding.id
             await self.db.flush()
 
-        # Generate and save code
-        code = self.code_service.generate_code()
-        await self.code_service.save_code(
-            self.db, email, code, "registration", invalidate_previous=True
-        )
-
-        # Send code via email service
-        await self.email_service.send_code(email, code, "registration")
+        # Generate tokens
+        access_token = create_access_token(user.id)
+        refresh_token = create_refresh_token(user.id)
 
         return {
-            "message": "Verification code sent to email",
-            "code_length": 6,
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "expires_in": 900,
         }
 
-    async def verify_registration(self, email: str, code: str) -> dict:
-        """Verify a registration code."""
+    async def login(self, email: str, password: str) -> dict:
+        """Authenticate user with email and password. Returns tokens."""
         # Find user
         stmt = select(User).where(User.email == email)
         result = await self.db.execute(stmt)
@@ -74,71 +76,17 @@ class AuthService:
                 field="email",
             )
 
-        # Verify code
-        stored_code = await self.code_service.verify_code(
-            self.db, email, code, "registration"
-        )
-
-        # Mark code as used
-        stored_code.used = True
-
-        # Mark user as verified
-        user.is_verified = True
-
-        return {
-            "message": "Email verified successfully",
-            "verified": True,
-        }
-
-    async def login(self, email: str) -> dict:
-        """Initiate a login flow by sending a verification code."""
-        # Find user
-        stmt = select(User).where(User.email == email)
-        result = await self.db.execute(stmt)
-        user = result.scalar_one_or_none()
-
-        if user is None:
-            raise NotFoundException(
-                message="User not found",
-                field="email",
+        # Check if user is banned
+        if user.is_banned:
+            raise UnauthorizedException(
+                message="Ваш аккаунт заблокирован",
             )
 
-        if not user.is_verified:
-            raise ForbiddenException(
-                message="Email is not verified. Please register first.",
+        # Verify password
+        if not user.check_password(password):
+            raise UnauthorizedException(
+                message="Invalid email or password",
             )
-
-        # Generate and save code
-        code = self.code_service.generate_code()
-        await self.code_service.save_code(
-            self.db, email, code, "login", invalidate_previous=True
-        )
-
-        # Send code
-        await self.email_service.send_code(email, code, "login")
-
-        return {"message": "Verification code sent to email"}
-
-    async def verify_login(self, email: str, code: str) -> dict:
-        """Verify a login code and return JWT tokens."""
-        # Find user
-        stmt = select(User).where(User.email == email)
-        result = await self.db.execute(stmt)
-        user = result.scalar_one_or_none()
-
-        if user is None:
-            raise NotFoundException(
-                message="User not found",
-                field="email",
-            )
-
-        # Verify code
-        stored_code = await self.code_service.verify_code(
-            self.db, email, code, "login"
-        )
-
-        # Mark code as used
-        stored_code.used = True
 
         # Generate tokens
         access_token = create_access_token(user.id)

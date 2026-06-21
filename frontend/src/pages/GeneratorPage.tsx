@@ -15,6 +15,7 @@ import {
   Space,
   Result,
   Tag,
+  message,
 } from 'antd'
 import {
   RobotOutlined,
@@ -26,7 +27,7 @@ import {
 } from '@ant-design/icons'
 import type { UploadFile } from 'antd'
 import { useGeneratorStore } from '../store/generatorStore'
-import { getDocuments, getDownloadUrl } from '../api/documents'
+import { getDocuments, downloadDocumentVersion } from '../api/documents'
 import { USE_MSW } from '../api/client'
 import type { DocumentListItem } from '../types'
 
@@ -88,10 +89,16 @@ export default function GeneratorPage() {
     setInfluencingDocIds([])
   }, [reset])
 
-  const handleDownload = useCallback(() => {
-    if (state.result?.current_version?.id) {
-      const url = getDownloadUrl(state.result.current_version.id)
-      window.open(url, '_blank')
+  const handleDownload = useCallback(async () => {
+    const result = state.result
+    if (result?.current_version?.id) {
+      try {
+        const ext = result.current_version.file_type === 'pdf' ? 'pdf' : 'docx'
+        const filename = `${result.title.replace(/[<>:"/\\|?*]/g, '_')}_v${result.current_version.version_number}.${ext}`
+        await downloadDocumentVersion(result.current_version.id, filename)
+      } catch {
+        message.error('Не удалось скачать документ')
+      }
     }
   }, [state.result])
 

@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from fastapi import UploadFile as FastAPIUploadFile
 from sqlalchemy import func, select, update
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -334,9 +335,18 @@ class DocumentService:
 
     async def get_document(self, id: int, holding_id: int, db: AsyncSession) -> DocumentResponse:
         """Get a single document with all metadata."""
-        stmt = select(Document).where(
-            Document.id == id,
-            Document.holding_id == holding_id,
+        stmt = (
+            select(Document)
+            .where(Document.id == id, Document.holding_id == holding_id)
+            .options(
+                selectinload(Document.versions)
+                .selectinload(DocumentVersion.sections),
+                selectinload(Document.versions)
+                .selectinload(DocumentVersion.tables),
+                selectinload(Document.terms),
+                selectinload(Document.abbreviations),
+                selectinload(Document.creator),
+            )
         )
         result = await db.execute(stmt)
         doc = result.scalar_one_or_none()
@@ -344,6 +354,7 @@ class DocumentService:
         if doc is None:
             raise NotFoundException(message="Document not found", field="document_id")
 
+        # Compute stats
         versions_count = len(doc.versions)
         sections_count = 0
         tables_count = 0
@@ -351,24 +362,48 @@ class DocumentService:
             sections_count += len(v.sections)
             tables_count += len(v.tables)
 
+        # Find the latest version (highest version_number)
+        latest_version = None
+        if doc.versions:
+            latest_version = max(doc.versions, key=lambda v: v.version_number)
+
+        # Build creator info
+        creator_info = None
+        if doc.creator:
+            creator_info = {"id": doc.creator.id, "email": doc.creator.email}
+
+        # Build current_version brief
+        current_version_brief = None
+        if latest_version:
+            current_version_brief = {
+                "id": latest_version.id,
+                "version_number": latest_version.version_number,
+                "file_type": latest_version.file_type,
+                "file_size": latest_version.file_size,
+                "created_at": latest_version.created_at,
+            }
+
         return DocumentResponse(
             id=doc.id,
             holding_id=doc.holding_id,
             title=doc.title,
             description=doc.description,
             status=doc.status,
-            created_by=doc.created_by,
+            created_by=creator_info,
+            current_version=current_version_brief,
+            stats={
+                "sections_count": sections_count,
+                "tables_count": tables_count,
+                "terms_count": len(doc.terms),
+                "abbreviations_count": len(doc.abbreviations),
+                "versions_count": versions_count,
+            },
             created_at=doc.created_at,
             updated_at=doc.updated_at,
-            versions_count=versions_count,
-            sections_count=sections_count,
-            tables_count=tables_count,
-            terms_count=len(doc.terms),
-            abbreviations_count=len(doc.abbreviations),
         )
 
     async def update_document(
-        self, id: int, data: DocumentUpdate, holding_id: int, db: AsyncSession
+        self, id: int, data: DocumentUpdate, holding_id: int, db: AsyncSession, user_id: Optional[int] = None
     ) -> DocumentResponse:
         """Update document metadata."""
         stmt = select(Document).where(
@@ -381,6 +416,8 @@ class DocumentService:
         if doc is None:
             raise NotFoundException(message="Document not found", field="document_id")
 
+        old_status = doc.status
+
         if data.title is not None:
             doc.title = data.title
         if data.description is not None:
@@ -389,7 +426,51 @@ class DocumentService:
             doc.status = data.status
 
         await db.flush()
+
+        # Log status change
+        if data.status is not None and data.status != old_status:
+            await self._log_status_change(
+                document_id=id,
+                from_status=old_status,
+                to_status=data.status,
+                user_id=user_id,
+                db=db,
+            )
+
+            # Trigger pattern analysis if document is approved and not yet analyzed
+            if data.status == "approved" and not doc.was_analyzed:
+                from app.services.pattern_analysis_service import pattern_analysis_service
+                try:
+                    analysis_result = await pattern_analysis_service.analyze_document(
+                        document_id=id,
+                        db=db,
+                    )
+                    logger.info(
+                        f"Pattern analysis triggered for document {id}: {analysis_result}"
+                    )
+                except Exception as e:
+                    logger.error(f"Pattern analysis failed for document {id}: {e}", exc_info=True)
+                    # Don't fail the update if analysis fails
+
         return await self.get_document(id, holding_id, db)
+
+    async def _log_status_change(
+        self,
+        document_id: int,
+        from_status: Optional[str],
+        to_status: str,
+        user_id: Optional[int],
+        db: AsyncSession,
+    ) -> None:
+        """Log a document status change."""
+        from app.models.document_status_log import DocumentStatusLog
+        log = DocumentStatusLog(
+            document_id=document_id,
+            from_status=from_status,
+            to_status=to_status,
+            changed_by=user_id,
+        )
+        db.add(log)
 
     async def archive_document(self, id: int, holding_id: int, db: AsyncSession) -> None:
         """Archive a document by setting status to 'archived'."""
@@ -404,6 +485,33 @@ class DocumentService:
             raise NotFoundException(message="Document not found", field="document_id")
 
         doc.status = "archived"
+        await db.flush()
+
+    async def hard_delete_document(self, id: int, db: AsyncSession) -> None:
+        """Permanently delete a document and all related data from DB and storage.
+
+        This includes:
+        - All versions (and their files from storage)
+        - All terms, abbreviations, tables, sections
+        - All links (source and target)
+        - All order-document links
+        """
+        stmt = select(Document).where(Document.id == id)
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        # Delete version files from storage first
+        for version in doc.versions:
+            try:
+                await storage.delete(version.file_path)
+            except Exception:
+                pass  # Log but don't fail if file already missing
+
+        # Delete the document - ORM cascades will delete all related records
+        await db.delete(doc)
         await db.flush()
 
     async def get_versions(

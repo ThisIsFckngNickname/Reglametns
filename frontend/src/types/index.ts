@@ -2,27 +2,25 @@
 
 export interface RegisterRequest {
   email: string
+  password: string
 }
 
-export type LoginRequest = RegisterRequest
-
-export interface RegisterResponse {
-  message: string
-  code_length: number
-}
-
-export interface VerifyRequest {
+export interface LoginRequest {
   email: string
-  code: string
+  password: string
 }
 
-export interface VerifyResponse {
-  message: string
-  verified: boolean
+// RegisterResponse = TokenResponse — возвращает токены сразу
+export interface RegisterResponse {
+  access_token: string
+  refresh_token?: string
+  token_type: string
+  expires_in: number
 }
 
 export interface TokenResponse {
   access_token: string
+  refresh_token?: string
   token_type: string
   expires_in: number
 }
@@ -36,11 +34,18 @@ export interface HoldingBrief {
   legal_form: string
 }
 
+export interface UserHoldingInfo {
+  holding_id: number
+  holding_name: string
+  role: string
+}
+
 export interface UserProfile {
   id: number
   email: string
   is_verified: boolean
   active_holding: HoldingBrief | null
+  holdings?: UserHoldingInfo[]
 }
 
 export interface SetHoldingRequest {
@@ -102,6 +107,31 @@ export interface AuthState {
   logout: () => void
 }
 
+// ---- Admin types ----
+
+export interface AdminUserCreate {
+  email: string
+  password: string
+  holding_id?: number | null
+  role?: string
+}
+
+export interface AdminUserUpdate {
+  email?: string
+  password?: string
+  is_verified?: boolean
+}
+
+export interface AdminUserResponse {
+  id: number
+  email: string
+  is_verified: boolean
+  is_banned: boolean
+  active_holding: HoldingBrief | null
+  holdings: UserHoldingInfo[]
+  created_at: string
+}
+
 // ---- Document types ----
 
 export type DocumentStatus = 'draft' | 'review' | 'approved' | 'archived'
@@ -113,6 +143,7 @@ export interface DocumentListItem {
   file_type: 'docx' | 'pdf'
   file_size: number
   version_number: number
+  current_version: DocumentVersionBrief | null
   has_terms: boolean
   has_abbreviations: boolean
   created_by: { id: number; email: string }

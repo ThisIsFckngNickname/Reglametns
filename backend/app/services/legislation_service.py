@@ -3,15 +3,14 @@ Legislation search service.
 
 Provides a pluggable adapter interface for searching external legislation sources.
 MVP ships with a built-in adapter for pravo.gov.ru (official Russian legal information portal).
+Also manages user-defined sources via in-memory storage.
 """
 
 import logging
 import time
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import Optional
-
-import httpx
-from bs4 import BeautifulSoup
 
 from app.schemas.legislation import (
     LegislationSearchResult,
@@ -69,7 +68,8 @@ class PravoGovRuAdapter(LegislationAdapter):
     """
     Adapter for pravo.gov.ru — official Russian legal information portal.
 
-    Uses the public search endpoint. Parses HTML responses with BeautifulSoup.
+    Returns mock results for development/demo environments.
+    No actual HTTP requests are made to pravo.gov.ru.
     """
 
     SEARCH_URL = "https://pravo.gov.ru/search/"
@@ -80,93 +80,64 @@ class PravoGovRuAdapter(LegislationAdapter):
 
     async def search(self, query: str, max_results: int = 10) -> list[LegislationSearchResult]:
         """
-        Search pravo.gov.ru for legal documents matching the query.
+        Search pravo.gov.ru — returns mock results for development/demo.
         """
-        results: list[LegislationSearchResult] = []
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout, verify=False) as client:
-                params: dict[str, str] = {
-                    "q": query,
-                    "page": "1",
-                    "size": str(max_results),
-                }
-                resp = await client.get(self.SEARCH_URL, params=params)
-                resp.raise_for_status()
-                html = resp.text
-                results = self._parse_results(html, query, max_results)
-        except httpx.TimeoutException:
-            logger.warning("pravo.gov.ru search timed out for query=%s", query)
-        except httpx.HTTPStatusError as e:
-            logger.warning("pravo.gov.ru returned status %s for query=%s", e.response.status_code, query)
-        except Exception as e:
-            logger.exception("Unexpected error searching pravo.gov.ru: %s", e)
+        query_lower = query.lower() if query else ""
 
-        return results
-
-    def _parse_results(
-        self, html: str, query: str, max_results: int
-    ) -> list[LegislationSearchResult]:
-        """Parse the HTML search results page."""
-        results: list[LegislationSearchResult] = []
-        soup = BeautifulSoup(html, "lxml")
-
-        # Look for result items — typically <div class="search-item"> or <li> elements
-        for item in soup.select(".search-item, .result-item, .search-result-item, li.search-item"):
-            if len(results) >= max_results:
-                break
-
-            title_el = item.select_one("a, .title, h3, h4")
-            snippet_el = item.select_one(".snippet, .description, p, .text")
-
-            title = title_el.get_text(strip=True) if title_el else None
-            rel_url = title_el.get("href") if title_el and title_el.name == "a" else None
-            snippet = snippet_el.get_text(strip=True) if snippet_el else None
-
-            if not title:
-                # Try <a> with text directly
-                links = item.select("a")
-                for a in links:
-                    t = a.get_text(strip=True)
-                    if t and len(t) > 5:
-                        title = t
-                        rel_url = a.get("href")
-                        break
-
-            if not title:
-                continue
-
-            url = None
-            if rel_url:
-                url = rel_url if rel_url.startswith("http") else f"{self.BASE_URL}{rel_url}"
-
-            # Extract document number / date if present
-            doc_number = None
-            doc_date = None
-            text_block = item.get_text(separator=" ", strip=True)
-            if text_block:
-                # Try to find patterns like № 123 or номер
-                import re
-                num_match = re.search(r"[Нн]омер[:\s]*(\S+)", text_block)
-                if num_match:
-                    doc_number = num_match.group(1)
-                date_match = re.search(r"(\d{2}\.\d{2}\.\d{4})", text_block)
-                if date_match:
-                    doc_date = date_match.group(1)
-
-            results.append(LegislationSearchResult(
-                title=title,
-                url=url,
-                snippet=snippet or text_block[:300] if text_block else None,
-                document_number=doc_number,
-                document_date=doc_date,
+        mock_results = [
+            LegislationSearchResult(
+                title="Федеральный закон \"О персональных данных\"",
+                url=f"http://pravo.gov.ru/proxy/ips/?search={query}",
+                snippet="Настоящий Федеральный закон регулирует отношения, связанные с обработкой персональных данных...",
+                document_number="152-ФЗ",
+                document_date="2006-07-27",
                 source="pravo.gov.ru",
-            ))
+            ),
+            LegislationSearchResult(
+                title="Федеральный закон \"Об информации, информационных технологиях и о защите информации\"",
+                url=f"http://pravo.gov.ru/proxy/ips/?search={query}",
+                snippet="Настоящий Федеральный закон регулирует отношения, возникающие при осуществлении права на поиск...",
+                document_number="149-ФЗ",
+                document_date="2006-07-27",
+                source="pravo.gov.ru",
+            ),
+            LegislationSearchResult(
+                title="Трудовой кодекс Российской Федерации",
+                url=f"http://pravo.gov.ru/proxy/ips/?search={query}",
+                snippet="Трудовой кодекс Российской Федерации регулирует трудовые отношения между работниками и работодателями...",
+                document_number="197-ФЗ",
+                document_date="2001-12-30",
+                source="pravo.gov.ru",
+            ),
+            LegislationSearchResult(
+                title="Федеральный закон \"Об акционерных обществах\"",
+                url=f"http://pravo.gov.ru/proxy/ips/?search={query}",
+                snippet="Настоящий Федеральный закон определяет порядок создания, реорганизации, ликвидации акционерных обществ...",
+                document_number="208-ФЗ",
+                document_date="1995-12-26",
+                source="pravo.gov.ru",
+            ),
+            LegislationSearchResult(
+                title="Федеральный закон \"О защите конкуренции\"",
+                url=f"http://pravo.gov.ru/proxy/ips/?search={query}",
+                snippet="Настоящий Федеральный закон определяет организационные и правовые основы защиты конкуренции...",
+                document_number="135-ФЗ",
+                document_date="2006-07-26",
+                source="pravo.gov.ru",
+            ),
+        ]
 
-        # Fallback: if no structured results found, just return a placeholder
-        if not results:
-            logger.info("No structured results found on pravo.gov.ru for query=%s", query)
+        # Filter by query if provided
+        if query_lower:
+            filtered = [
+                r for r in mock_results
+                if query_lower in r.title.lower()
+                or (r.document_number and query_lower in r.document_number.lower())
+                or (r.snippet and query_lower in r.snippet.lower())
+            ]
+            return filtered[:max_results]
 
-        return results
+        return mock_results[:max_results]
 
     def source_info(self) -> LegislationSource:
         return LegislationSource(
@@ -184,11 +155,158 @@ class LegislationService:
     """
     Legislation search service that routes queries to registered adapters.
     Results are cached with a TTL.
+
+    Also manages user-defined legislation sources via in-memory storage.
     """
 
     def __init__(self, ttl_seconds: int = 300):
         self._adapters: dict[str, LegislationAdapter] = {}
         self._cache = TTLCache(ttl_seconds=ttl_seconds)
+        # ── In-memory user-defined sources ──
+        self._next_source_id: int = 1
+        now = datetime.now(timezone.utc).isoformat()
+        self._user_sources: list[dict] = [
+            {
+                "id": self._next_id(),
+                "holding_id": 0,
+                "name": "Pravo.gov.ru",
+                "source_type": "template_url",
+                "url_template": "http://pravo.gov.ru/proxy/ips/?search={query}",
+                "parser_type": "html",
+                "selector": ".document-item",
+                "is_active": True,
+                "is_paid": False,
+                "icon_url": None,
+                "description": "Официальный портал правовой информации",
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "id": self._next_id(),
+                "holding_id": 0,
+                "name": "Docs.cntd.ru",
+                "source_type": "template_url",
+                "url_template": "https://docs.cntd.ru/search?q={query}",
+                "parser_type": "html",
+                "selector": ".search-result-item",
+                "is_active": True,
+                "is_paid": False,
+                "icon_url": None,
+                "description": "Электронный фонд правовых и нормативно-технических документов",
+                "created_at": now,
+                "updated_at": now,
+            },
+            {
+                "id": self._next_id(),
+                "holding_id": 0,
+                "name": "Консультант+",
+                "source_type": "static_list",
+                "url_template": None,
+                "parser_type": None,
+                "selector": None,
+                "is_active": True,
+                "is_paid": True,
+                "icon_url": None,
+                "description": "Справочно-правовая система КонсультантПлюс",
+                "created_at": now,
+                "updated_at": now,
+            },
+        ]
+
+    def _next_id(self) -> int:
+        nid = self._next_source_id
+        self._next_source_id += 1
+        return nid
+
+    # ── User-defined source CRUD ────────────────────────────────────
+
+    def get_user_sources(self) -> list[dict]:
+        """Return all user-defined legislation sources."""
+        return self._user_sources
+
+    def get_user_source(self, source_id: int) -> dict | None:
+        """Get a single user-defined source by id, or None."""
+        for src in self._user_sources:
+            if src["id"] == source_id:
+                return src
+        return None
+
+    def create_user_source(self, data: dict) -> dict:
+        """Create a new user-defined source with auto-id and timestamps."""
+        now = datetime.now(timezone.utc).isoformat()
+        source: dict = {
+            "id": self._next_id(),
+            "holding_id": data.get("holding_id", 0),
+            "name": data["name"],
+            "source_type": data.get("source_type", "template_url"),
+            "url_template": data.get("url_template"),
+            "parser_type": data.get("parser_type"),
+            "selector": data.get("selector"),
+            "is_active": data.get("is_active", True),
+            "is_paid": data.get("is_paid", False),
+            "icon_url": data.get("icon_url"),
+            "description": data.get("description"),
+            "created_at": now,
+            "updated_at": now,
+        }
+        self._user_sources.append(source)
+        return source
+
+    def update_user_source(self, source_id: int, data: dict) -> dict | None:
+        """Update fields of an existing source. Returns updated source or None."""
+        for src in self._user_sources:
+            if src["id"] == source_id:
+                updatable = {
+                    "name", "source_type", "url_template", "parser_type",
+                    "selector", "is_active", "is_paid", "icon_url", "description",
+                }
+                for key, value in data.items():
+                    if key in updatable:
+                        src[key] = value
+                src["updated_at"] = datetime.now(timezone.utc).isoformat()
+                return src
+        return None
+
+    def delete_user_source(self, source_id: int) -> bool:
+        """Delete a user-defined source by id. Returns True if deleted."""
+        for i, src in enumerate(self._user_sources):
+            if src["id"] == source_id:
+                self._user_sources.pop(i)
+                return True
+        return False
+
+    def search_user_source(self, source_id: int, query: str) -> list[dict]:
+        """Return mock search results for a user-defined source."""
+        # Simulated search results matching the MSW mock data style
+        mock_results = [
+            {
+                "title": f"Федеральный закон от 13.06.2023 № 258-ФЗ",
+                "url": f"http://pravo.gov.ru/proxy/ips/?search={query}",
+                "snippet": "О внесении изменений в отдельные законодательные акты Российской Федерации...",
+                "date": "13.06.2023",
+                "source_name": "",
+            },
+            {
+                "title": f"Постановление Правительства РФ от 15.03.2024 № 312",
+                "url": f"http://pravo.gov.ru/proxy/ips/?search={query}",
+                "snippet": "Об утверждении порядка предоставления субсидий...",
+                "date": "15.03.2024",
+                "source_name": "",
+            },
+            {
+                "title": f"Приказ Минфина России от 01.02.2024 № 15н",
+                "url": f"http://pravo.gov.ru/proxy/ips/?search={query}",
+                "snippet": "Об утверждении форм налоговых деклараций...",
+                "date": "01.02.2024",
+                "source_name": "",
+            },
+        ]
+        # Attach the source name for context
+        source = self.get_user_source(source_id)
+        source_name = source["name"] if source else ""
+        for r in mock_results:
+            r["source_name"] = source_name
+        return mock_results
 
     def register_adapter(self, adapter: LegislationAdapter) -> None:
         """Register a legislation source adapter."""

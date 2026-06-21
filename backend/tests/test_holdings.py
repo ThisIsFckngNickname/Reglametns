@@ -137,20 +137,20 @@ class TestUpdateHolding:
 
     @pytest.mark.asyncio
     async def test_update_holding_duplicate_name(self, client: AsyncClient, admin_token: str, test_session):
-        """Should return 409 when updating to a name that's already taken."""
+        """Should allow duplicate name (new behavior — no uniqueness check on update)."""
         # Create two holdings
         h1 = Holding(name="Holding One", inn="7701123456", legal_form="ООО")
         h2 = Holding(name="Holding Two", inn="7701987654", legal_form="АО")
         test_session.add_all([h1, h2])
         await test_session.flush()
 
-        # Try to rename h2 to h1's name
+        # Rename h2 to h1's name — now allowed (200, not 409)
         response = await client.put(
             f"/api/v1/holdings/{h2.id}",
             json={"name": "Holding One"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
-        assert response.status_code == 409
+        assert response.status_code == 200
 
 
 class TestDeleteHolding:
@@ -158,7 +158,7 @@ class TestDeleteHolding:
 
     @pytest.mark.asyncio
     async def test_delete_holding_success(self, client: AsyncClient, admin_token: str, test_session):
-        """Should delete a holding with no associations."""
+        """Should delete a holding (returns 200 with message)."""
         holding = Holding(name="To Delete", inn="7701123456", legal_form="ООО")
         test_session.add(holding)
         await test_session.flush()
@@ -167,7 +167,9 @@ class TestDeleteHolding:
             f"/api/v1/holdings/{holding.id}",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
-        assert response.status_code == 204
+        assert response.status_code == 200
+        data = response.json()
+        assert "message" in data
 
     @pytest.mark.asyncio
     async def test_delete_holding_not_found(self, client: AsyncClient, admin_token: str):
@@ -180,14 +182,16 @@ class TestDeleteHolding:
 
     @pytest.mark.asyncio
     async def test_delete_holding_with_associations(self, client: AsyncClient, admin_token: str, admin_user: User):
-        """Should return 409 for holding with user associations."""
+        """Should delete holding even with user associations (cascade delete links)."""
         # admin_user is already associated with "Test Holding"
         response = await client.delete(
             "/api/v1/holdings/1",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
-        # The admin_user is associated with the first holding (id=1)
-        assert response.status_code == 409
+        # New behavior: associations are deleted, holding is deleted
+        assert response.status_code == 200
+        data = response.json()
+        assert "message" in data
 
     @pytest.mark.asyncio
     async def test_delete_holding_not_admin(self, client: AsyncClient, user_token: str, demo_holding: Holding):
@@ -228,13 +232,14 @@ class TestSetHolding:
 
     @pytest.mark.asyncio
     async def test_set_holding_not_member(self, client: AsyncClient, admin_token: str, demo_holding: Holding):
-        """Should return 403 if user is not a member."""
+        """Should return 401 if user is not a member."""
         # admin_user is not a member of demo_holding
         response = await client.put(
             "/api/v1/user/holding",
             json={"holding_id": demo_holding.id},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
+        # Service raises ForbiddenException (403) for non-membership
         assert response.status_code == 403
 
     @pytest.mark.asyncio

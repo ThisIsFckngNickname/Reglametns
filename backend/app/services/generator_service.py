@@ -37,7 +37,8 @@ from app.models.holding import Holding
 from app.models.user import User
 from app.schemas.document import DocumentResponse
 from app.services.docx_builder import docx_builder
-from app.services.gigachat_service import GigaChatClient, MOCK_RESPONSE, gigachat_client
+from app.services.gigachat_service import MOCK_RESPONSE
+from app.services.llm_client import LLMClient
 from app.services.prompt_builder import prompt_builder
 from app.services.storage_service import storage
 
@@ -47,8 +48,27 @@ logger = logging.getLogger(__name__)
 class GeneratorService:
     """Orchestrates the full generation process."""
 
-    def __init__(self, giga_client: Optional[GigaChatClient] = None):
-        self.gigachat = giga_client or gigachat_client
+    def __init__(self, llm_client: Optional[LLMClient] = None):
+        if llm_client:
+            self.llm = llm_client
+        elif settings.llm_provider == "ollama":
+            from app.services.ollama_client import ollama_client
+
+            self.llm = ollama_client
+        elif settings.llm_provider == "gigachat":
+            from app.services.gigachat_service import gigachat_client
+
+            self.llm = gigachat_client
+        else:
+            # Fallback: try Ollama first, then GigaChat
+            try:
+                from app.services.ollama_client import ollama_client
+
+                self.llm = ollama_client
+            except Exception:
+                from app.services.gigachat_service import gigachat_client
+
+                self.llm = gigachat_client
 
     async def generate(
         self,
@@ -86,21 +106,25 @@ class GeneratorService:
         # 4. Extract text from draft files
         drafts_content = await self._extract_draft_text(draft_files)
 
-        # 5. Build prompt
+        # 5. Build prompt (with style patterns if available)
+        style_patterns_text = self._format_style_patterns_for_prompt(holding.style_settings)
         messages = prompt_builder.build_messages(
             holding=holding,
             context_description=context_description,
             drafts_content=drafts_content,
             terms=terms,
             influencing_docs=influencing_docs,
+            style_patterns=style_patterns_text,
         )
 
-        # 6. Call GigaChat
-        is_mock = self.gigachat.is_mock
+        # 6. Call LLM
+        is_mock = self.llm.is_mock
         try:
-            raw_response = await self.gigachat.chat_completion(messages)
+            raw_response = await self.llm.chat_completion(messages)
+            # Re-check after call — OllamaClient may auto-switch to mock on connection failure
+            is_mock = self.llm.is_mock
         except Exception as e:
-            logger.error(f"GigaChat generation failed: {e}", exc_info=True)
+            logger.error(f"LLM generation failed: {e}", exc_info=True)
             # Fallback to mock response on error
             raw_response = json.dumps(MOCK_RESPONSE, ensure_ascii=False)
             is_mock = True
@@ -109,6 +133,11 @@ class GeneratorService:
         result = await self._parse_response(raw_response)
 
         # Add mock flag
+        if is_mock:
+            # Use context_description to generate a meaningful title instead of generic one
+            context_title = context_description.strip().strip('"').strip("'")[:100]
+            if context_title:
+                result["title"] = f"Документ: {context_title}"
         result["generated_with_mock"] = is_mock
 
         # 8. Build .docx
@@ -170,20 +199,31 @@ class GeneratorService:
 
         await db.flush()
 
+        current_version_brief = {
+            "id": version.id,
+            "version_number": version.version_number,
+            "file_type": version.file_type,
+            "file_size": version.file_size,
+            "created_at": version.created_at.isoformat(),
+        }
+
         return DocumentResponse(
             id=document.id,
             holding_id=holding_id,
             title=doc_title,
             description=result.get("description", ""),
             status="draft",
-            created_by=user.id,
+            current_version=current_version_brief,
+            created_by={"id": user.id, "email": user.email},
             created_at=document.created_at,
             updated_at=document.updated_at,
-            versions_count=1,
-            sections_count=len(result.get("sections", [])),
-            tables_count=0,
-            terms_count=len(result.get("terms", [])),
-            abbreviations_count=len(result.get("abbreviations", [])),
+            stats={
+                "versions_count": 1,
+                "sections_count": len(result.get("sections", [])),
+                "tables_count": 0,
+                "terms_count": len(result.get("terms", [])),
+                "abbreviations_count": len(result.get("abbreviations", [])),
+            },
         )
 
     async def _load_holding(self, holding_id: int, db: AsyncSession) -> Holding:
@@ -370,6 +410,23 @@ class GeneratorService:
             message="Не удалось обработать ответ от GigaChat. Попробуйте снова.",
         )
 
+    def _format_style_patterns_for_prompt(self, style_settings: Optional[dict]) -> str:
+        """Format style settings into prompt-friendly string."""
+        if not style_settings or not isinstance(style_settings, dict):
+            return ""
+
+        lines = []
+        typical_phrases = style_settings.get("typical_phrases", [])
+        if typical_phrases and isinstance(typical_phrases, list):
+            phrases_str = "; ".join(f"«{p}…»" for p in typical_phrases[:5])
+            lines.append(f"Типичные фразы: {phrases_str}")
+
+        avg_len = style_settings.get("avg_sentence_length")
+        if avg_len:
+            lines.append(f"Средняя длина предложения: ~{avg_len} слов.")
+
+        return " | ".join(lines)
+
     def _get_output_path(self, holding_id: int, title: str) -> str:
         """Generate output path for the generated .docx file.
 
@@ -430,20 +487,31 @@ class GeneratorService:
         db.add(version)
         await db.flush()
 
+        current_version_brief = {
+            "id": version.id,
+            "version_number": version.version_number,
+            "file_type": version.file_type,
+            "file_size": version.file_size,
+            "created_at": version.created_at.isoformat(),
+        }
+
         return DocumentResponse(
             id=document.id,
             holding_id=holding_id,
             title=doc_title,
             description=mock_result.get("description", ""),
             status="draft",
-            created_by=user.id,
+            current_version=current_version_brief,
+            created_by={"id": user.id, "email": user.email},
             created_at=document.created_at,
             updated_at=document.updated_at,
-            versions_count=1,
-            sections_count=len(mock_result.get("sections", [])),
-            tables_count=0,
-            terms_count=len(mock_result.get("terms", [])),
-            abbreviations_count=len(mock_result.get("abbreviations", [])),
+            stats={
+                "versions_count": 1,
+                "sections_count": len(mock_result.get("sections", [])),
+                "tables_count": 0,
+                "terms_count": len(mock_result.get("terms", [])),
+                "abbreviations_count": len(mock_result.get("abbreviations", [])),
+            },
         )
 
 

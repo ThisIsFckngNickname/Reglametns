@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Form, Input, Button, Card, Typography, Alert, Space } from 'antd'
-import { MailOutlined } from '@ant-design/icons'
+import { MailOutlined, LockOutlined } from '@ant-design/icons'
 import { Link, useNavigate } from 'react-router-dom'
 import { registerUser } from '../api/auth'
 import { getApiErrorMessage } from '../api/client'
+import { useAuthStore } from '../store/authStore'
 
 const { Title, Text } = Typography
 
@@ -11,21 +12,21 @@ export default function RegisterPage() {
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [successEmail, setSuccessEmail] = useState<string | null>(null)
   const navigate = useNavigate()
+  const setTokens = useAuthStore((state) => state.setTokens)
 
-  const handleSubmit = async (values: { email: string }) => {
+  const handleSubmit = async (values: { email: string; password: string }) => {
     setLoading(true)
     setError(null)
-    setSuccessEmail(null)
 
     try {
-      await registerUser({ email: values.email })
-      setSuccessEmail(values.email)
-      // Navigate to verify page after a short delay
-      setTimeout(() => {
-        navigate(`/verify-registration?email=${encodeURIComponent(values.email)}`)
-      }, 1500)
+      const result = await registerUser({
+        email: values.email,
+        password: values.password,
+      })
+      // Save tokens and redirect to dashboard
+      setTokens(result.access_token)
+      navigate('/', { replace: true })
     } catch (err) {
       setError(getApiErrorMessage(err))
     } finally {
@@ -48,7 +49,7 @@ export default function RegisterPage() {
           <div style={{ textAlign: 'center' }}>
             <Title level={2}>Регистрация</Title>
             <Text type="secondary">
-              Введите email для создания аккаунта
+              Создайте аккаунт для работы с регламентами
             </Text>
           </div>
 
@@ -60,15 +61,6 @@ export default function RegisterPage() {
               showIcon
               closable
               onClose={() => setError(null)}
-            />
-          )}
-
-          {successEmail && (
-            <Alert
-              message="Код отправлен!"
-              description={`Проверочный код отправлен на ${successEmail}. Перенаправляем на страницу подтверждения...`}
-              type="success"
-              showIcon
             />
           )}
 
@@ -89,6 +81,46 @@ export default function RegisterPage() {
               <Input
                 prefix={<MailOutlined />}
                 placeholder="user@example.com"
+                size="large"
+                disabled={loading}
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="password"
+              label="Пароль"
+              rules={[
+                { required: true, message: 'Введите пароль' },
+                { min: 6, message: 'Пароль должен быть минимум 6 символов' },
+              ]}
+            >
+              <Input.Password
+                prefix={<LockOutlined />}
+                placeholder="Придумайте пароль"
+                size="large"
+                disabled={loading}
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="confirmPassword"
+              label="Подтверждение пароля"
+              dependencies={['password']}
+              rules={[
+                { required: true, message: 'Подтвердите пароль' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    if (!value || getFieldValue('password') === value) {
+                      return Promise.resolve()
+                    }
+                    return Promise.reject(new Error('Пароли не совпадают'))
+                  },
+                }),
+              ]}
+            >
+              <Input.Password
+                prefix={<LockOutlined />}
+                placeholder="Повторите пароль"
                 size="large"
                 disabled={loading}
               />

@@ -58,7 +58,34 @@ services:
       timeout: 3s
       retries: 5
 
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # For CPU-only, remove the deploy section above
+
+  ollama-setup:
+    image: ollama/ollama:latest
+    depends_on:
+      - ollama
+    entrypoint: >
+      /bin/sh -c "
+      sleep 10;
+      ollama pull qwen2.5:14b;
+      exit 0;
+      "
+
 volumes:
   pgdata:
   minio_data:
   redis_data:
+  ollama_data:

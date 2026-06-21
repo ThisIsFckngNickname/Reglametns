@@ -48,6 +48,7 @@ import type {
   DocumentListItem,
 } from '../types'
 import { useDocumentStore } from '../store/documentStore'
+import { useAuthStore } from '../store/authStore'
 import {
   getDocumentSections,
   getDocumentTerms,
@@ -55,6 +56,8 @@ import {
   getDocumentTables,
   getDocumentVersions,
   getDownloadUrl,
+  downloadDocumentVersion,
+  deleteDocument,
 } from '../api/documents'
 import { createDocumentVersion } from '../api/versions'
 import {
@@ -81,20 +84,24 @@ const LINK_TYPE_LABELS: Record<string, string> = {
 
 // Convert sections tree to Ant Design Tree nodes
 function sectionsToTreeNodes(sections: DocumentSection[]): DataNode[] {
-  return sections.map((s) => ({
-    key: `section-${s.id}`,
-    title: s.title,
-    children: s.children.length > 0 ? sectionsToTreeNodes(s.children) : undefined,
-    isLeaf: s.children.length === 0,
-  }))
+  return sections.map((s) => {
+    const children = Array.isArray(s.children) ? s.children : []
+    return {
+      key: `section-${s.id}`,
+      title: s.title,
+      children: children.length > 0 ? sectionsToTreeNodes(children) : undefined,
+      isLeaf: children.length === 0,
+    }
+  })
 }
 
 // Find a section by id in the tree
 function findSectionById(sections: DocumentSection[], id: number): DocumentSection | null {
   for (const s of sections) {
     if (s.id === id) return s
-    if (s.children.length > 0) {
-      const found = findSectionById(s.children, id)
+    const children = Array.isArray(s.children) ? s.children : []
+    if (children.length > 0) {
+      const found = findSectionById(children, id)
       if (found) return found
     }
   }
@@ -134,6 +141,9 @@ export default function DocumentDetailPage() {
 
   const [statusUpdating, setStatusUpdating] = useState(false)
 
+  const { user } = useAuthStore()
+  const isAdmin = user?.holdings?.some((h) => h.role === 'admin') ?? false
+
   // ---- Version creation ----
   const [versionModalOpen, setVersionModalOpen] = useState(false)
   const [versionFileList, setVersionFileList] = useState<UploadFile[]>([])
@@ -168,9 +178,16 @@ export default function DocumentDetailPage() {
     setSectionsLoading(true)
     try {
       const data = await getDocumentSections(documentId)
-      setSections(data.sections)
+      // Normalize sections: ensure all children are arrays
+      const normalizeChildren = (sections: DocumentSection[]): DocumentSection[] => {
+        return sections.map(s => ({
+          ...s,
+          children: Array.isArray(s.children) ? normalizeChildren(s.children) : []
+        }))
+      }
+      setSections(normalizeChildren(data.sections))
     } catch {
-      // Silently fail
+      message.error('Не удалось загрузить структуру документа')
     } finally {
       setSectionsLoading(false)
     }
@@ -296,10 +313,32 @@ export default function DocumentDetailPage() {
     }
   }
 
-  const handleDownload = (versionId: number) => {
-    const url = getDownloadUrl(versionId)
-    window.open(url, '_blank')
+  const handleAdminDelete = async () => {
+    if (!currentDocument) return
+    try {
+      await deleteDocument(currentDocument.id)
+      message.success('Документ удалён навсегда')
+      navigate('/documents')
+    } catch {
+      message.error('Ошибка при удалении документа')
+    }
   }
+
+  const handleDownload = useCallback(async (versionId: number) => {
+    try {
+      // Build filename from doc info if available
+      const doc = currentDocument
+      let filename: string | undefined
+      if (doc?.current_version && doc?.title) {
+        const version = doc.current_version
+        const ext = version.file_type === 'pdf' ? 'pdf' : 'docx'
+        filename = `${doc.title.replace(/[<>:"/\\|?*]/g, '_')}_v${version.version_number}.${ext}`
+      }
+      await downloadDocumentVersion(versionId, filename)
+    } catch {
+      message.error('Не удалось скачать документ')
+    }
+  }, [currentDocument])
 
   const handleTreeSelect = (selectedKeys: React.Key[]) => {
     if (selectedKeys.length === 0) {
@@ -662,6 +701,16 @@ export default function DocumentDetailPage() {
         </Space>
 
         <Space>
+          {/* Download button — always visible, disabled if no version */}
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            disabled={!doc.current_version}
+            onClick={() => doc.current_version && handleDownload(doc.current_version.id)}
+          >
+            Скачать
+          </Button>
+
           {/* Only show status change for non-archived documents */}
           {doc.status !== 'archived' && (
             <Select
@@ -672,6 +721,22 @@ export default function DocumentDetailPage() {
               loading={statusUpdating}
               aria-label="Изменить статус"
             />
+          )}
+
+          {/* Admin delete button */}
+          {isAdmin && (
+            <Popconfirm
+              title="Удалить документ навсегда?"
+              description="Это действие необратимо. Все версии, термины и связи будут удалены."
+              onConfirm={handleAdminDelete}
+              okText="Удалить"
+              cancelText="Отмена"
+              okButtonProps={{ danger: true }}
+            >
+              <Button danger icon={<DeleteOutlined />}>
+                Удалить навсегда
+              </Button>
+            </Popconfirm>
           )}
 
           {doc.status !== 'archived' && (

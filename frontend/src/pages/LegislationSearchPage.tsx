@@ -70,6 +70,13 @@ export default function LegislationSearchPage() {
     }, 300)
   }, [])
 
+  // Trigger search immediately (on Enter / button click)
+  const handleSearch = useCallback((value: string) => {
+    setQuery(value)
+    setDebouncedQuery(value)
+    setPage(1)
+  }, [])
+
   // Perform search when debounced query, source, or page changes
   useEffect(() => {
     if (!debouncedQuery || debouncedQuery.length < 3) {
@@ -166,6 +173,7 @@ export default function LegislationSearchPage() {
             placeholder="Введите поисковый запрос (минимум 3 символа)..."
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
+            onSearch={handleSearch}
             enterButton={<><SearchOutlined /> Поиск</>}
             aria-label="Поиск законодательства"
           />

@@ -9,15 +9,15 @@ import { ConfigProvider } from 'antd'
 import ruRU from 'antd/locale/ru_RU'
 import { useAuthStore } from './store/authStore'
 import { getCurrentUser } from './api/auth'
+import ErrorBoundary from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 import HoldingRequired from './components/HoldingRequired'
+import AdminRoute from './components/AdminRoute'
 import AppLayout from './components/AppLayout'
 
 // Pages
 import RegisterPage from './pages/RegisterPage'
-import VerifyRegistrationPage from './pages/VerifyRegistrationPage'
 import LoginPage from './pages/LoginPage'
-import VerifyLoginPage from './pages/VerifyLoginPage'
 import ProfilePage from './pages/ProfilePage'
 import AdminHoldingsPage from './pages/AdminHoldingsPage'
 import DashboardPage from './pages/DashboardPage'
@@ -32,6 +32,7 @@ import OrderDetailPage from './pages/OrderDetailPage'
 import LegislationSearchPage from './pages/LegislationSearchPage'
 import LegislationSourcesPage from './pages/LegislationSourcesPage'
 import HoldingProfilePage from './pages/HoldingProfilePage'
+import AdminUsersPage from './pages/AdminUsersPage'
 
 export default function App() {
   const { initialize, isAuthenticated, setUser, logout, isLoading } =
@@ -75,12 +76,11 @@ export default function App() {
   return (
     <ConfigProvider locale={ruRU}>
       <BrowserRouter>
+        <ErrorBoundary title="Ошибка в приложении" description="Произошла критическая ошибка. Перезагрузите страницу или вернитесь позже.">
         <Routes>
           {/* Public routes */}
           <Route path="/register" element={<RegisterPage />} />
-          <Route path="/verify-registration" element={<VerifyRegistrationPage />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/verify-login" element={<VerifyLoginPage />} />
 
           {/* Protected routes */}
           <Route
@@ -94,9 +94,17 @@ export default function App() {
             <Route
               path="/admin/holdings"
               element={
-                <HoldingRequired>
+                <AdminRoute>
                   <AdminHoldingsPage />
-                </HoldingRequired>
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="/admin/users"
+              element={
+                <AdminRoute>
+                  <AdminUsersPage />
+                </AdminRoute>
               }
             />
             <Route
@@ -127,7 +135,9 @@ export default function App() {
               path="/documents/:id"
               element={
                 <HoldingRequired>
-                  <DocumentDetailPage />
+                  <ErrorBoundary title="Ошибка загрузки документа">
+                    <DocumentDetailPage />
+                  </ErrorBoundary>
                 </HoldingRequired>
               }
             />
@@ -159,7 +169,9 @@ export default function App() {
               path="/orders/:id"
               element={
                 <HoldingRequired>
-                  <OrderDetailPage />
+                  <ErrorBoundary title="Ошибка загрузки приказа">
+                    <OrderDetailPage />
+                  </ErrorBoundary>
                 </HoldingRequired>
               }
             />
@@ -167,7 +179,9 @@ export default function App() {
               path="/legislation"
               element={
                 <HoldingRequired>
-                  <LegislationSearchPage />
+                  <ErrorBoundary title="Ошибка поиска">
+                    <LegislationSearchPage />
+                  </ErrorBoundary>
                 </HoldingRequired>
               }
             />
@@ -192,6 +206,7 @@ export default function App() {
           {/* 404 */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        </ErrorBoundary>
       </BrowserRouter>
     </ConfigProvider>
   )

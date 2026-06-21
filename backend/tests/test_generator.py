@@ -39,6 +39,7 @@ from app.services.cache_service import CacheService
 from app.services.email_service import ConsoleEmailService
 from app.services.generator_service import GeneratorService
 from app.services.gigachat_service import GigaChatClient, MOCK_RESPONSE
+from app.services.llm_client import LLMClient
 from app.services.prompt_builder import PromptBuilder, prompt_builder
 from app.services.docx_builder import DocxBuilder, docx_builder
 from app.config import settings
@@ -150,10 +151,10 @@ def admin_token(admin_user_with_holding: User) -> str:
 @pytest.mark.asyncio
 async def test_generate_mock_mode(test_session: AsyncSession, admin_user_with_holding: User):
     """Test that generator returns mock document when GigaChat is in mock mode."""
-    # GeneratorService uses gigachat_client singleton which is in mock mode
-    # when credentials are not set
-    service = GeneratorService()
-    assert service.gigachat.is_mock, "GigaChat should be in mock mode"
+    # Use GigaChatClient explicitly — it will be in mock mode since credentials
+    # are not configured in test environment
+    service = GeneratorService(llm_client=GigaChatClient())
+    assert service.llm.is_mock, "LLM should be in mock mode"
 
     result = await service.generate(
         context_description="Тестовый контекст для демо-режима",
@@ -163,19 +164,23 @@ async def test_generate_mock_mode(test_session: AsyncSession, admin_user_with_ho
     )
 
     assert result is not None
-    assert result.title == "Регламент «Название документа»"
+    assert result.title == "Документ: Тестовый контекст для демо-режима"
     assert result.status == "draft"
-    assert result.versions_count == 1
-    assert result.sections_count == 4
-    assert result.terms_count == 2
-    assert result.abbreviations_count == 2
+    assert result.stats.versions_count == 1
+    assert result.stats.sections_count == 4
+    assert result.stats.terms_count == 2
+    assert result.stats.abbreviations_count == 2
+
+    assert result.current_version is not None
+    assert result.current_version.version_number == 1
+    assert result.current_version.file_type == "docx"
 
     # Verify document exists in DB
     stmt = select(Document).where(Document.id == result.id)
     db_result = await test_session.execute(stmt)
     doc = db_result.scalar_one_or_none()
     assert doc is not None
-    assert doc.title == "Регламент «Название документа»"
+    assert doc.title == "Документ: Тестовый контекст для демо-режима"
 
     # Verify terms were saved
     term_stmt = select(DocumentTerm).where(DocumentTerm.document_id == result.id)
@@ -205,10 +210,10 @@ async def test_generate_api_mock(client: AsyncClient, admin_token: str):
 
     assert response.status_code == 200
     data = response.json()
-    assert data["title"] == "Регламент «Название документа»"
+    assert data["title"] == "Документ: Тестовый контекст для генерации документа"
     assert data["status"] == "draft"
-    assert data["versions_count"] == 1
-    assert data["sections_count"] == 4
+    assert data["stats"]["versions_count"] == 1
+    assert data["stats"]["sections_count"] == 4
 
 
 # ─── Test 3: Generation with draft files ──────────────────────────────────
@@ -234,7 +239,7 @@ async def test_generate_with_drafts(test_session: AsyncSession, admin_user_with_
     )
 
     assert result is not None
-    assert result.title == "Регламент «Название документа»"
+    assert result.title == "Документ: Тестовый контекст"
     assert result.status == "draft"
 
 

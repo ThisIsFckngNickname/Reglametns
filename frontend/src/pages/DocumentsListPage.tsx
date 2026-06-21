@@ -11,15 +11,21 @@ import {
   Alert,
   Empty,
   Card,
+  Popconfirm,
+  message,
 } from 'antd'
 import {
   UploadOutlined,
   SearchOutlined,
   FileTextOutlined,
+  DownloadOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { DocumentListItem, DocumentStatus } from '../types'
 import { useDocumentStore } from '../store/documentStore'
+import { useAuthStore } from '../store/authStore'
+import { downloadDocumentVersion, deleteDocument } from '../api/documents'
 import { STATUS_LABELS, STATUS_COLORS, formatFileSize } from '../utils/statusHelpers'
 import dayjs from 'dayjs'
 
@@ -54,6 +60,9 @@ export default function DocumentsListPage() {
   const [searchText, setSearchText] = useState<string>(
     searchParams.get('search') || ''
   )
+
+  const { user } = useAuthStore()
+  const isAdmin = user?.holdings?.some((h) => h.role === 'admin') ?? false
 
   const loadDocuments = useCallback(
     (params?: { status?: string; search?: string; page?: number }) => {
@@ -171,7 +180,67 @@ export default function DocumentsListPage() {
       render: (date: string) => dayjs(date).format('DD.MM.YYYY HH:mm'),
       sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
     },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 120,
+      render: (_: any, record: DocumentListItem) => (
+        <Space>
+          <Button
+            type="link"
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={!record.current_version}
+            onClick={async (e) => {
+              e.stopPropagation()
+              if (record.current_version) {
+                try {
+                  const version = record.current_version
+                  const ext = version.file_type === 'pdf' ? 'pdf' : 'docx'
+                  const filename = `${record.title.replace(/[<>:"/\\|?*]/g, '_')}_v${version.version_number}.${ext}`
+                  await downloadDocumentVersion(version.id, filename)
+                } catch {
+                  message.error('Не удалось скачать документ')
+                }
+              }
+            }}
+          >
+            Скачать
+          </Button>
+          {/* Admin delete button — only for admins */}
+          {isAdmin && (
+            <Popconfirm
+              title="Удалить документ?"
+              description="Документ будет удалён навсегда со всеми версиями."
+              onConfirm={() => handleAdminDelete(record.id)}
+              okText="Удалить"
+              cancelText="Отмена"
+              okButtonProps={{ danger: true }}
+            >
+              <Button
+                type="link"
+                danger
+                size="small"
+                icon={<DeleteOutlined />}
+              >
+                Удалить
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
+      ),
+    },
   ]
+
+  const handleAdminDelete = async (id: number) => {
+    try {
+      await deleteDocument(id)
+      message.success('Документ удалён навсегда')
+      fetchDocuments()
+    } catch {
+      message.error('Ошибка при удалении документа')
+    }
+  }
 
   return (
     <div style={{ padding: 24 }}>

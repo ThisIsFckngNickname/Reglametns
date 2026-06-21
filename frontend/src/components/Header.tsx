@@ -1,5 +1,5 @@
 import { Layout, Button, Typography, Space, Tag } from 'antd'
-import { LogoutOutlined, UserOutlined, HomeOutlined, FileTextOutlined, UploadOutlined, RobotOutlined, OrderedListOutlined, SearchOutlined, GlobalOutlined } from '@ant-design/icons'
+import { LogoutOutlined, UserOutlined, HomeOutlined, FileTextOutlined, RobotOutlined, SearchOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 
@@ -22,9 +22,8 @@ export default function Header() {
   // Determine active nav item
   const isDocumentsActive = location.pathname.startsWith('/documents')
   const isGeneratorActive = location.pathname.startsWith('/generator')
-  const isOrdersActive = location.pathname.startsWith('/orders')
-  const isLegislationActive = location.pathname.startsWith('/legislation')
   const isSourcesActive = location.pathname.startsWith('/legislation-sources')
+  const isLegislationActive = location.pathname.startsWith('/legislation') && !isSourcesActive
 
   return (
     <Layout.Header
@@ -55,21 +54,7 @@ export default function Header() {
             icon={<FileTextOutlined />}
             onClick={() => navigate('/documents')}
           >
-            Реестр документов
-          </Button>
-          <Button
-            type="text"
-            icon={<UploadOutlined />}
-            onClick={() => navigate('/documents/upload')}
-          >
-            Загрузить
-          </Button>
-          <Button
-            type={isOrdersActive ? 'primary' : 'text'}
-            icon={<OrderedListOutlined />}
-            onClick={() => navigate('/orders')}
-          >
-            Приказы
+            Документы
           </Button>
           <Button
             type={isGeneratorActive ? 'primary' : 'text'}
@@ -92,6 +77,15 @@ export default function Header() {
           >
             Источники
           </Button>
+          {user?.holdings?.some(h => h.role === 'admin') && (
+            <Button
+              type={(location.pathname.startsWith('/admin')) ? 'primary' : 'text'}
+              icon={<SettingOutlined />}
+              onClick={() => navigate('/admin/holdings')}
+            >
+              Админка
+            </Button>
+          )}
         </Space>
       </Space>
 

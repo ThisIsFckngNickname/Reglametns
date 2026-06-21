@@ -41,8 +41,13 @@ export default function ProfilePage() {
         getHoldings(),
         getCurrentUser(),
       ])
-      setHoldings(holdingsData)
       updateUser(userData)
+      
+      // Показываем только те холдинги, в которых пользователь состоит
+      const userHoldingIds = new Set(userData.holdings?.map(h => h.holding_id) ?? [])
+      const filtered = holdingsData.filter(h => userHoldingIds.has(h.id))
+      setHoldings(filtered)
+      
       if (userData.active_holding) {
         setSelectedHoldingId(userData.active_holding.id)
       }

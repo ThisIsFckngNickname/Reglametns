@@ -243,8 +243,8 @@ class TestGetDocument:
         data = response.json()
         assert data["id"] == doc_id
         assert data["title"] == "Detail Test"
-        assert data["versions_count"] >= 1
-        assert data["sections_count"] >= 0
+        assert data["stats"]["versions_count"] >= 1
+        assert data["stats"]["sections_count"] >= 0
         assert data["status"] == "draft"
         assert "holding_id" in data
 
