@@ -123,3 +123,30 @@ At the end of implementation tasks provide:
 4. Known risks / assumptions / technical debt
 5. Manual QA steps
 6. Recommended next step
+
+---
+
+## Dev services startup rules
+
+При запуске dev-серверов (backend uvicorn, frontend Vite) соблюдай следующие правила:
+
+1. **Все сервисы должны запускаться в фоне, без видимых окон/консолей.**
+   - Для backend: `Start-Process -WindowStyle Hidden -PassThru -FilePath 'python' -ArgumentList '-m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000' -WorkingDirectory 'backend/'`
+   - Для frontend: `Start-Process -WindowStyle Hidden -PassThru -FilePath 'cmd.exe' -ArgumentList '/c cd /d \"frontend/\" && npm run dev'`
+   - **НЕЛЬЗЯ** использовать `UseShellExecute = $true` (открывает новое окно)
+   - **НЕЛЬЗЯ** запускать python/npm напрямую без `-WindowStyle Hidden`
+
+2. **Стандартные скрипты запуска (для ручного использования):**
+   - `start-dev.ps1` — запуск обоих сервисов (скрытый режим)
+   - `stop-dev.ps1` — остановка по PID-файлам
+   - `start.cmd` — альтернативный запуск через cmd
+   - `stop.cmd` — остановка по портам
+
+3. **PID-файлы:**
+   - Backend: `.backend.pid` (в корне проекта)
+   - Frontend: `.frontend.pid` (в корне проекта)
+   - Используются для остановки сервисов
+
+4. **Логи:** stdout/stderr сервисов не перенаправляются (из-за ограничений PowerShell 5.1 с `-WindowStyle Hidden`). При необходимости логирования запускать вручную в видимом режиме.
+
+5. **Порты:** backend на 8000, frontend на 5173. Перед запуском проверять, что порты свободны.

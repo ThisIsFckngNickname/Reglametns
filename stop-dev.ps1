@@ -1,48 +1,25 @@
-# stop-dev.ps1
-# Останавливает backend и frontend, запущенные через start-dev.ps1.
-# Читает PID из .backend.pid / .frontend.pid и убивает процессы.
-
-$ErrorActionPreference = 'Stop'
+﻿# stop-dev.ps1
+# РћСЃС‚Р°РЅР°РІР»РёРІР°РµС‚ backend Рё frontend РїРѕ PID-С„Р°Р№Р»Р°Рј.
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BackendPid  = Join-Path -Path $ScriptDir -ChildPath ".backend.pid"
 $FrontendPid = Join-Path -Path $ScriptDir -ChildPath ".frontend.pid"
+$BackendLog  = Join-Path -Path $ScriptDir -ChildPath "backend-dev.log"
+$FrontendLog = Join-Path -Path $ScriptDir -ChildPath "frontend-dev.log"
 
-$stoppedAny = $false
-
-function Stop-ServiceFromPidFile {
-    param(
-        [string]$PidFilePath,
-        [string]$ServiceName
-    )
-    if (-not (Test-Path -LiteralPath $PidFilePath -PathType Leaf)) {
-        Write-Host "$ServiceName: PID file not found ($PidFilePath)." -ForegroundColor Yellow
-        return
-    }
-
-    $pidString = (Get-Content -LiteralPath $PidFilePath -Raw).Trim()
-    if ($pidString -notmatch '^\d+$') {
-        Write-Host "$ServiceName: invalid PID in file ($pidString). Removing file." -ForegroundColor Yellow
-        Remove-Item -LiteralPath $PidFilePath -Force -ErrorAction SilentlyContinue
-        return
-    }
-
-    $pidInt = [int]$pidString
-    $proc = Get-Process -Id $pidInt -ErrorAction SilentlyContinue
-    if ($proc) {
-        Stop-Process -Id $pidInt -Force
-        Write-Host "$ServiceName (PID $pidInt) stopped." -ForegroundColor Green
-        $script:stoppedAny = $true
+function Stop-ByPidFile {
+    param([string]$PidFile, [string]$Label)
+    if (Test-Path -LiteralPath $PidFile -PathType Leaf) {
+        $processId = Get-Content $PidFile
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        Write-Host "  $Label (PID $processId) stopped." Green
+        Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
     } else {
-        Write-Host "$ServiceName (PID $pidInt) is not running." -ForegroundColor Yellow
+        Write-Host "  ${Label}: no PID file found." Yellow
     }
-
-    Remove-Item -LiteralPath $PidFilePath -Force -ErrorAction SilentlyContinue
 }
 
-Stop-ServiceFromPidFile -PidFilePath $BackendPid  -ServiceName "Backend"
-Stop-ServiceFromPidFile -PidFilePath $FrontendPid -ServiceName "Frontend"
-
-if (-not $stoppedAny) {
-    Write-Host "No running services found." -ForegroundColor Yellow
-}
+Write-Host "Stopping services..." Yellow
+Stop-ByPidFile $BackendPid "Backend"
+Stop-ByPidFile $FrontendPid "Frontend"
+Write-Host "Done." Green

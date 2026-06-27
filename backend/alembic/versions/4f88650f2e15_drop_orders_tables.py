@@ -21,7 +21,7 @@ def upgrade() -> None:
     op.drop_index("ix_order_document_links_document_id", table_name="order_document_links")
     op.drop_index("ix_order_document_links_order_id", table_name="order_document_links")
     op.drop_table("order_document_links")
-    op.drop_index("ix_orders_company_id", table_name="orders")
+    op.drop_index("ix_orders_holding_id", table_name="orders")
     op.drop_table("orders")
 
 

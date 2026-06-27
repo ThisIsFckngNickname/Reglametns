@@ -3,7 +3,7 @@ import type {
   DocumentListItem, DocumentDetail, DocumentVersion,
   DocumentSection, DocumentTerm, DocumentAbbreviation,
   DocumentTable, UploadResponse, PaginatedResponse,
-  DocumentStatus,
+  DocumentStatus, DocumentLink,
 } from '../types'
 
 export async function uploadDocument(
@@ -56,7 +56,52 @@ export async function archiveDocument(id: number): Promise<void> {
 }
 
 export async function deleteDocument(id: number): Promise<void> {
-  await apiClient.delete(`/documents/admin/documents/${id}`)
+  await apiClient.delete(`/documents/admin/${id}`)
+}
+
+// Analysis
+export async function analyzeDocument(id: number): Promise<{
+  document_id: number
+  structure_extracted: boolean
+  style_extracted: boolean
+  terms_collected: number
+  abbreviations_collected: number
+  message: string
+}> {
+  const response = await apiClient.post(`/documents/${id}/analyze`)
+  return response.data
+}
+
+// Links
+export async function getDocumentLinks(id: number): Promise<DocumentLink[]> {
+  const response = await apiClient.get(`/documents/${id}/links`)
+  return response.data
+}
+
+export async function getIncomingLinks(id: number): Promise<DocumentLink[]> {
+  const response = await apiClient.get(`/documents/${id}/links/incoming`)
+  return response.data
+}
+
+export interface CreateLinkData {
+  target_document_id: number
+  link_type: 'references' | 'amends' | 'supersedes' | 'related'
+  description?: string
+}
+
+export async function createDocumentLink(
+  documentId: number,
+  data: CreateLinkData
+): Promise<DocumentLink> {
+  const response = await apiClient.post(`/documents/${documentId}/links`, data)
+  return response.data
+}
+
+export async function deleteDocumentLink(
+  documentId: number,
+  linkId: number
+): Promise<void> {
+  await apiClient.delete(`/documents/${documentId}/links/${linkId}`)
 }
 
 export async function getDocumentVersions(id: number): Promise<{ items: DocumentVersion[] }> {

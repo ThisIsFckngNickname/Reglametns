@@ -27,3 +27,12 @@ Do not start implementation without a confirmed plan.
 - Add/update tests for meaningful changes.
 - Before reporting a task as done, verify it without user involvement: typecheck, build, tests, and manual logic trace. Never make the user find defects that could have been caught by running the tools already available in the project.
 - Provide a concise final report.
+
+## Dev services startup
+
+При запуске dev-серверов (backend uvicorn, frontend Vite):
+- Все сервисы запускаются ТОЛЬКО в скрытом режиме (без окон/консолей)
+- Использовать: `Start-Process -WindowStyle Hidden -PassThru`
+- Для frontend (npm.cmd — batch-файл): запускать через `cmd.exe /c`
+- После запуска проверять что сервисы отвечают (health check / http status)
+- PID-файлы: `.backend.pid`, `.frontend.pid` в корне проекта

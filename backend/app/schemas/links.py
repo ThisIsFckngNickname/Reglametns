@@ -46,3 +46,14 @@ class DocumentLinkSourceResponse(BaseModel):
     target_status: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class AnalysisResponse(BaseModel):
+    """Response from a document analysis trigger."""
+    document_id: int
+    company_id: int
+    structure_extracted: bool = False
+    style_extracted: bool = False
+    terms_collected: int = 0
+    abbreviations_collected: int = 0
+    message: str = ""

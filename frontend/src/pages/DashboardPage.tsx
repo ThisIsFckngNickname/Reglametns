@@ -29,7 +29,7 @@ export default function DashboardPage() {
             description={
               <Space direction="vertical" size="small">
                 <Paragraph>
-                  Добро пожаловать в SRP — Service for Regulations and Policies.
+                  Добро пожаловать в СРП — Сервис управления регламентами.
                 </Paragraph>
                 <Paragraph type="secondary">
                   Здесь будет отображаться статистика документов, последние изменения

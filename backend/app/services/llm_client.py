@@ -17,7 +17,7 @@ class LLMClient(ABC):
         self,
         messages: list[dict],
         temperature: float = 0.3,
-        max_tokens: int = 48000,
+        max_tokens: int = 32000,
     ) -> str:
         """Send chat completion request.
 

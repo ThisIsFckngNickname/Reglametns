@@ -51,13 +51,15 @@ def upgrade() -> None:
     # --- 3. holdings -> companies ---
     op.rename_table("holdings", "companies")
 
-    # --- 4. Recreate users table ---
-    # The FK on active_holding_id still references holdings.id (dangling now).
-    # Recreating to keep the table schema in sync; FK fix deferred.
-    with op.batch_alter_table("users", recreate="always") as batch_op:
-        pass
+    # --- 4. Rename documents.holding_id -> company_id ---
+    with op.batch_alter_table("documents") as batch_op:
+        batch_op.alter_column("holding_id", new_column_name="company_id")
 
-    # --- 5. Create indexes with new table name ---
+    # --- 5. Rename users.active_holding_id -> active_company_id ---
+    with op.batch_alter_table("users", recreate="always") as batch_op:
+        batch_op.alter_column("active_holding_id", new_column_name="active_company_id")
+
+    # --- 6. Create indexes with new table name ---
     op.create_index(
         op.f("ix_user_companies_company_id"),
         "user_companies",
@@ -77,9 +79,13 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_user_companies_user_id"), table_name="user_companies")
     op.drop_index(op.f("ix_user_companies_company_id"), table_name="user_companies")
 
-    # --- Reverse users table recreation ---
+    # --- Reverse users.active_company_id -> active_holding_id ---
     with op.batch_alter_table("users", recreate="always") as batch_op:
-        pass
+        batch_op.alter_column("active_company_id", new_column_name="active_holding_id")
+
+    # --- Reverse documents.company_id -> holding_id ---
+    with op.batch_alter_table("documents") as batch_op:
+        batch_op.alter_column("company_id", new_column_name="holding_id")
 
     # --- Reverse companies -> holdings ---
     op.rename_table("companies", "holdings")

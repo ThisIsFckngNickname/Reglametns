@@ -83,6 +83,7 @@ class DocumentResponse(BaseModel):
     description: Optional[str] = None
     status: DocumentStatus
     created_by: Optional[dict] = None  # {"id": int, "email": str}
+    was_analyzed: bool = False
     current_version: Optional[DocumentVersionBrief] = None
     stats: DocumentStats = DocumentStats()
     created_at: datetime
@@ -96,6 +97,7 @@ class DocumentListItem(BaseModel):
     title: str
     description: Optional[str] = None
     status: DocumentStatus
+    was_analyzed: bool = False
     created_at: datetime
     updated_at: datetime
     file_type: Optional[str] = None

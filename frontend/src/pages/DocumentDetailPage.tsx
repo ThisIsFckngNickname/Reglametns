@@ -42,10 +42,13 @@ import type {
   DocumentTable,
   DocumentVersion,
   DocumentStatus,
+  DocumentListItem,
+  DocumentLink,
 } from '../types'
 import { useDocumentStore } from '../store/documentStore'
 import { useAuthStore } from '../store/authStore'
 import {
+  getDocuments,
   getDocumentSections,
   getDocumentTerms,
   getDocumentAbbreviations,
@@ -54,6 +57,11 @@ import {
   getDownloadUrl,
   downloadDocumentVersion,
   deleteDocument,
+  analyzeDocument,
+  getDocumentLinks,
+  getIncomingLinks,
+  createDocumentLink,
+  deleteDocumentLink,
 } from '../api/documents'
 import { createDocumentVersion } from '../api/versions'
 import { STATUS_LABELS, STATUS_COLORS, formatFileSize } from '../utils/statusHelpers'
@@ -121,6 +129,22 @@ export default function DocumentDetailPage() {
   const [versionsLoading, setVersionsLoading] = useState(false)
 
   const [statusUpdating, setStatusUpdating] = useState(false)
+
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analyzeResult, setAnalyzeResult] = useState<string | null>(null)
+
+  const [links, setLinks] = useState<DocumentLink[]>([])
+  const [incomingLinks, setIncomingLinks] = useState<DocumentLink[]>([])
+  const [linksLoading, setLinksLoading] = useState(false)
+
+  const [linkModalOpen, setLinkModalOpen] = useState(false)
+  const [newLinkTargetId, setNewLinkTargetId] = useState<number | undefined>(undefined)
+  const [newLinkType, setNewLinkType] = useState<'references' | 'amends' | 'supersedes' | 'related'>('references')
+  const [newLinkDescription, setNewLinkDescription] = useState('')
+  const [linkCreating, setLinkCreating] = useState(false)
+  const [linkSearchText, setLinkSearchText] = useState('')
+  const [linkSearchResults, setLinkSearchResults] = useState<DocumentListItem[]>([])
+  const [linkSearchLoading, setLinkSearchLoading] = useState(false)
 
   const { user } = useAuthStore()
   const isAdmin = user?.companies?.some((h) => h.role === 'admin') ?? false
@@ -218,6 +242,41 @@ export default function DocumentDetailPage() {
     }
   }, [documentId])
 
+  // Load links
+  const loadLinks = useCallback(async () => {
+    if (!documentId) return
+    setLinksLoading(true)
+    try {
+      const [outgoing, incoming] = await Promise.all([
+        getDocumentLinks(documentId),
+        getIncomingLinks(documentId),
+      ])
+      setLinks(outgoing)
+      setIncomingLinks(incoming)
+    } catch {
+      // Silent fail
+    } finally {
+      setLinksLoading(false)
+    }
+  }, [documentId])
+
+  const searchDocumentsForLink = useCallback(async (search: string) => {
+    if (!search || search.length < 2) {
+      setLinkSearchResults([])
+      return
+    }
+    setLinkSearchLoading(true)
+    try {
+      const result = await getDocuments({ search, page_size: 20 })
+      const filtered = (result.items || []).filter(d => d.id !== documentId)
+      setLinkSearchResults(filtered)
+    } catch {
+      setLinkSearchResults([])
+    } finally {
+      setLinkSearchLoading(false)
+    }
+  }, [documentId])
+
   const handleTabChange = (activeKey: string) => {
     switch (activeKey) {
       case 'structure':
@@ -234,6 +293,9 @@ export default function DocumentDetailPage() {
         break
       case 'versions':
         if (versions.length === 0) loadVersions()
+        break
+      case 'links':
+        if (links.length === 0 && incomingLinks.length === 0) loadLinks()
         break
     }
   }
@@ -288,6 +350,60 @@ export default function DocumentDetailPage() {
       message.error('Не удалось скачать документ')
     }
   }, [currentDocument])
+
+  const handleAnalyze = async () => {
+    if (!currentDocument) return
+    setAnalyzing(true)
+    setAnalyzeResult(null)
+    try {
+      const result = await analyzeDocument(currentDocument.id)
+      setAnalyzeResult(result.message)
+      message.success('Анализ документа завершён')
+      fetchDocument(documentId) // Refresh to update was_analyzed
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail?.message || err?.message || 'Ошибка анализа'
+      setAnalyzeResult(msg)
+      message.error(msg)
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  const handleCreateLink = async () => {
+    if (!currentDocument || !newLinkTargetId) {
+      message.error('Выберите документ для связи')
+      return
+    }
+    setLinkCreating(true)
+    try {
+      await createDocumentLink(currentDocument.id, {
+        target_document_id: newLinkTargetId,
+        link_type: newLinkType,
+        description: newLinkDescription || undefined,
+      })
+      message.success('Связь создана')
+      setLinkModalOpen(false)
+      setNewLinkTargetId(undefined)
+      setNewLinkDescription('')
+      loadLinks()
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail?.message || err?.message || 'Ошибка создания связи'
+      message.error(msg)
+    } finally {
+      setLinkCreating(false)
+    }
+  }
+
+  const handleDeleteLink = async (linkId: number) => {
+    if (!currentDocument) return
+    try {
+      await deleteDocumentLink(currentDocument.id, linkId)
+      message.success('Связь удалена')
+      loadLinks()
+    } catch {
+      message.error('Ошибка удаления связи')
+    }
+  }
 
   const handleTreeSelect = (selectedKeys: React.Key[]) => {
     if (selectedKeys.length === 0) {
@@ -815,6 +931,241 @@ export default function DocumentDetailPage() {
                       size="middle"
                     />
                   )}
+                </div>
+              ),
+            },
+            {
+              key: 'links',
+              label: `Связи (${(links.length + incomingLinks.length) || 0})`,
+              children: (
+                <div>
+                  {/* Links section */}
+                  {linksLoading ? (
+                    <Spin style={{ display: 'block', margin: '40px auto' }} />
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <Title level={5} style={{ margin: 0 }}>Исходящие связи</Title>
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<PlusOutlined />}
+                          onClick={() => setLinkModalOpen(true)}
+                        >
+                          Добавить связь
+                        </Button>
+                      </div>
+
+                      {links.length === 0 ? (
+                        <Empty description="Нет исходящих связей" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      ) : (
+                        <Table
+                          dataSource={links}
+                          rowKey="id"
+                          pagination={false}
+                          size="small"
+                          style={{ marginBottom: 24 }}
+                          columns={[
+                            {
+                              title: 'Тип',
+                              dataIndex: 'link_type',
+                              key: 'link_type',
+                              width: 140,
+                              render: (type: string) => {
+                                const labels: Record<string, string> = {
+                                  references: 'Ссылается',
+                                  amends: 'Изменяет',
+                                  supersedes: 'Заменяет',
+                                  related: 'Связан',
+                                }
+                                return <Tag>{labels[type] || type}</Tag>
+                              },
+                            },
+                            {
+                              title: 'Документ',
+                              dataIndex: 'target_title',
+                              key: 'target_title',
+                              ellipsis: true,
+                            },
+                            {
+                              title: 'Статус',
+                              dataIndex: 'target_status',
+                              key: 'target_status',
+                              width: 120,
+                              render: (status: string) => (
+                                <Tag color={STATUS_COLORS[status as DocumentStatus]}>
+                                  {STATUS_LABELS[status as DocumentStatus] || status}
+                                </Tag>
+                              ),
+                            },
+                            {
+                              title: 'Описание',
+                              dataIndex: 'description',
+                              key: 'description',
+                              ellipsis: true,
+                              render: (val: string | null) => val || <Text type="secondary">—</Text>,
+                            },
+                            {
+                              title: '',
+                              key: 'actions',
+                              width: 60,
+                              render: (_: any, record: DocumentLink) => (
+                                <Popconfirm
+                                  title="Удалить связь?"
+                                  onConfirm={() => handleDeleteLink(record.id)}
+                                  okText="Да"
+                                  cancelText="Нет"
+                                >
+                                  <Button type="link" danger size="small" icon={<DeleteOutlined />} />
+                                </Popconfirm>
+                              ),
+                            },
+                          ]}
+                        />
+                      )}
+
+                      <Title level={5} style={{ marginTop: 24 }}>Входящие связи</Title>
+                      {incomingLinks.length === 0 ? (
+                        <Empty description="Нет входящих связей" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      ) : (
+                        <Table
+                          dataSource={incomingLinks}
+                          rowKey="id"
+                          pagination={false}
+                          size="small"
+                          columns={[
+                            {
+                              title: 'Тип',
+                              dataIndex: 'link_type',
+                              key: 'link_type',
+                              width: 140,
+                              render: (type: string) => {
+                                const labels: Record<string, string> = {
+                                  references: 'Ссылается',
+                                  amends: 'Изменяет',
+                                  supersedes: 'Заменяет',
+                                  related: 'Связан',
+                                }
+                                return <Tag>{labels[type] || type}</Tag>
+                              },
+                            },
+                            {
+                              title: 'От документа',
+                              dataIndex: 'source_title',
+                              key: 'source_title',
+                              ellipsis: true,
+                            },
+                            {
+                              title: 'Статус',
+                              dataIndex: 'source_status',
+                              key: 'source_status',
+                              width: 120,
+                              render: (status: string) => (
+                                <Tag color={STATUS_COLORS[status as DocumentStatus]}>
+                                  {STATUS_LABELS[status as DocumentStatus] || status}
+                                </Tag>
+                              ),
+                            },
+                            {
+                              title: 'Описание',
+                              dataIndex: 'description',
+                              key: 'description',
+                              ellipsis: true,
+                              render: (val: string | null) => val || <Text type="secondary">—</Text>,
+                            },
+                          ]}
+                        />
+                      )}
+                    </>
+                  )}
+
+                  {/* Create Link Modal */}
+                  <Modal
+                    title="Добавить связь"
+                    open={linkModalOpen}
+                    onOk={handleCreateLink}
+                    onCancel={() => {
+                      setLinkModalOpen(false)
+                      setNewLinkTargetId(undefined)
+                      setNewLinkDescription('')
+                      setLinkSearchText('')
+                      setLinkSearchResults([])
+                    }}
+                    confirmLoading={linkCreating}
+                    okText="Создать"
+                    cancelText="Отмена"
+                    width={520}
+                  >
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      <div>
+                        <Text strong>Тип связи</Text>
+                        <Select
+                          value={newLinkType}
+                          onChange={setNewLinkType}
+                          style={{ width: '100%', marginTop: 4 }}
+                          options={[
+                            { value: 'references', label: 'Ссылается на' },
+                            { value: 'amends', label: 'Изменяет' },
+                            { value: 'supersedes', label: 'Заменяет' },
+                            { value: 'related', label: 'Связан с' },
+                          ]}
+                        />
+                      </div>
+                      <div>
+                        <Text strong>Целевой документ</Text>
+                        <Select
+                          showSearch
+                          value={newLinkTargetId}
+                          placeholder="Начните вводить название документа..."
+                          notFoundContent={
+                            linkSearchLoading ? <Spin size="small" /> :
+                            linkSearchText.length < 2 ? 'Введите минимум 2 символа' :
+                            'Документы не найдены'
+                          }
+                          filterOption={false}
+                          onSearch={(value) => {
+                            setLinkSearchText(value)
+                            searchDocumentsForLink(value)
+                          }}
+                          onChange={(value) => setNewLinkTargetId(value)}
+                          style={{ width: '100%', marginTop: 4 }}
+                          loading={linkSearchLoading}
+                        >
+                          {linkSearchResults.map((doc) => (
+                            <Select.Option key={doc.id} value={doc.id}>
+                              <Space>
+                                <Tag color={STATUS_COLORS[doc.status]} style={{ marginRight: 4 }}>
+                                  #{doc.id}
+                                </Tag>
+                                <span>{doc.title}</span>
+                                <Tag color={STATUS_COLORS[doc.status]}>{STATUS_LABELS[doc.status]}</Tag>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  {doc.file_type?.toUpperCase()} v{doc.version_number}
+                                </Text>
+                              </Space>
+                            </Select.Option>
+                          ))}
+                        </Select>
+                        {newLinkTargetId && (
+                          <div style={{ marginTop: 4 }}>
+                            <Text type="success">
+                              ✓ Выбран: {linkSearchResults.find(d => d.id === newLinkTargetId)?.title || `ID=${newLinkTargetId}`}
+                            </Text>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <Text strong>Описание (опционально)</Text>
+                        <Input.TextArea
+                          rows={2}
+                          placeholder="Например: «Использует терминологию из документа»"
+                          value={newLinkDescription}
+                          onChange={(e) => setNewLinkDescription(e.target.value)}
+                          style={{ marginTop: 4 }}
+                        />
+                      </div>
+                    </Space>
+                  </Modal>
                 </div>
               ),
             },

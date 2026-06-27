@@ -23,6 +23,7 @@ from app.schemas.document import (
     PaginatedResponse,
     UploadResponse,
 )
+from app.schemas.links import DocumentLinkCreate
 from app.services.document_service import document_service
 from app.services.storage_service import storage
 
@@ -262,3 +263,164 @@ async def get_document_tables(
         company_id=user.active_company_id,
         db=db,
     )
+
+
+@router.post("/{document_id}/analyze")
+async def analyze_document(
+    document_id: int,
+    user: User = Depends(require_active_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually trigger pattern analysis for a document.
+
+    Extracts structure, style patterns, and collects terms/abbreviations
+    from the document's latest version, updating the company profile.
+    """
+    return await document_service.analyze_document(
+        document_id=document_id,
+        company_id=user.active_company_id,
+        db=db,
+    )
+
+
+@router.post("/analyze-batch")
+async def analyze_documents_batch(
+    body: dict,
+    user: User = Depends(require_active_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Analyze multiple documents at once.
+    
+    Body: {"document_ids": [1, 2, 3]}
+    Returns summary of analysis results for each document.
+    """
+    from app.services.pattern_analysis_service import pattern_analysis_service
+    
+    document_ids = body.get("document_ids", [])
+    if not isinstance(document_ids, list) or len(document_ids) == 0:
+        return {"results": [], "total": 0, "successful": 0, "failed": 0}
+    
+    results = []
+    successful = 0
+    failed = 0
+    
+    for doc_id in document_ids:
+        try:
+            # Verify ownership
+            stmt = select(Document).where(
+                Document.id == doc_id,
+                Document.company_id == user.active_company_id,
+            )
+            result = await db.execute(stmt)
+            doc = result.scalar_one_or_none()
+            
+            if doc is None:
+                results.append({"document_id": doc_id, "status": "error", "message": "Document not found"})
+                failed += 1
+                continue
+            
+            analysis_result = await pattern_analysis_service.analyze_document(
+                document_id=doc_id,
+                db=db,
+            )
+            
+            if "error" in analysis_result:
+                results.append({
+                    "document_id": doc_id,
+                    "status": "skipped" if analysis_result.get("already_analyzed") else "error",
+                    "message": analysis_result["error"],
+                })
+                if not analysis_result.get("already_analyzed"):
+                    failed += 1
+                else:
+                    successful += 1  # Already analyzed counts as OK
+            else:
+                results.append({
+                    "document_id": doc_id,
+                    "status": "success",
+                    "message": "Document analyzed successfully",
+                    "structure_extracted": analysis_result.get("structure_extracted", False),
+                    "style_extracted": analysis_result.get("style_extracted", False),
+                    "terms_collected": analysis_result.get("terms_collected", 0),
+                    "abbreviations_collected": analysis_result.get("abbreviations_collected", 0),
+                })
+                successful += 1
+        except Exception as e:
+            results.append({"document_id": doc_id, "status": "error", "message": str(e)})
+            failed += 1
+    
+    return {
+        "results": results,
+        "total": len(document_ids),
+        "successful": successful,
+        "failed": failed,
+    }
+
+
+@router.get("/{document_id}/links", response_model=List[dict])
+async def get_outgoing_links(
+    document_id: int,
+    user: User = Depends(require_active_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get outgoing links from a document (documents it references)."""
+    return await document_service.get_outgoing_links(
+        document_id=document_id,
+        company_id=user.active_company_id,
+        db=db,
+    )
+
+
+@router.get("/{document_id}/links/incoming", response_model=List[dict])
+async def get_incoming_links(
+    document_id: int,
+    user: User = Depends(require_active_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get incoming links to a document (documents that reference it)."""
+    return await document_service.get_incoming_links(
+        document_id=document_id,
+        company_id=user.active_company_id,
+        db=db,
+    )
+
+
+@router.post("/{document_id}/links", status_code=201)
+async def create_link(
+    document_id: int,
+    body: DocumentLinkCreate,
+    user: User = Depends(require_active_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a link from this document to another document.
+
+    Link types:
+    - references: документ ссылается на другой
+    - amends: документ вносит изменения в другой
+    - supersedes: документ заменяет другой
+    - related: документы связаны тематически
+    """
+    return await document_service.create_link(
+        document_id=document_id,
+        data=body,
+        user_id=user.id,
+        company_id=user.active_company_id,
+        db=db,
+    )
+
+
+@router.delete("/{document_id}/links/{link_id}", status_code=204)
+async def delete_link(
+    document_id: int,
+    link_id: int,
+    user: User = Depends(require_active_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a link from this document."""
+    await document_service.delete_link(
+        document_id=document_id,
+        link_id=link_id,
+        company_id=user.active_company_id,
+        db=db,
+    )
+    return Response(status_code=204)

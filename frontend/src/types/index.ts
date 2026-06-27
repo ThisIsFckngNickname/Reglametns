@@ -146,6 +146,7 @@ export interface DocumentListItem {
   current_version: DocumentVersionBrief | null
   has_terms: boolean
   has_abbreviations: boolean
+  was_analyzed?: boolean
   created_by: { id: number; email: string }
   created_at: string
   updated_at: string
@@ -159,6 +160,7 @@ export interface DocumentDetail {
   company_id: number
   created_by: { id: number; email: string }
   current_version: DocumentVersionBrief | null
+  was_analyzed?: boolean
   stats: {
     sections_count: number
     tables_count: number
@@ -298,9 +300,14 @@ export interface DocumentLink {
   link_type: 'references' | 'amends' | 'supersedes' | 'related'
   is_manual: boolean
   description: string | null
-  source_document?: DocumentListItem
-  target_document?: DocumentListItem
+  created_by: number | null
   created_at: string
+  // Flat fields for outgoing links (from GET /documents/{id}/links)
+  target_title?: string
+  target_status?: string
+  // Flat fields for incoming links (from GET /documents/{id}/links/incoming)
+  source_title?: string
+  source_status?: string
 }
 
 // ---- Legislation types ----

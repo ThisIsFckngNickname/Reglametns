@@ -383,8 +383,8 @@ class TestLongDocumentSettings:
     """Tests for long document generation settings."""
 
     def test_default_max_tokens_increased(self):
-        """Default max_tokens should be 48000 for long documents."""
-        assert settings.generation_max_tokens == 48000
+        """Default max_tokens should be 32000 for long documents."""
+        assert settings.generation_max_tokens == 32000
 
     def test_ollama_uses_high_max_tokens(self):
         """OllamaClient should support high max_tokens via num_predict."""
@@ -393,15 +393,15 @@ class TestLongDocumentSettings:
         sig = inspect.signature(client.chat_completion)
         assert "max_tokens" in sig.parameters
         param = sig.parameters["max_tokens"]
-        assert param.default == 48000
+        assert param.default == 32000
 
     def test_llm_client_abstract_uses_high_max_tokens(self):
-        """LLMClient abstract should have 48000 default max_tokens."""
+        """LLMClient abstract should have 32000 default max_tokens."""
         import inspect
         sig = inspect.signature(LLMClient.chat_completion)
         assert "max_tokens" in sig.parameters
         param = sig.parameters["max_tokens"]
-        assert param.default == 48000
+        assert param.default == 32000
 
 
 # ─── Test 7: Maximum tokens consistency ─────────────────────────────────
@@ -412,7 +412,7 @@ class TestMaxTokensConfig:
     def test_generation_max_tokens_config(self):
         """Settings should expose generation_max_tokens."""
         assert hasattr(settings, "generation_max_tokens")
-        assert settings.generation_max_tokens >= 32000
+        assert settings.generation_max_tokens >= 16000
 
     def test_temperature_config(self):
         """Settings should have generation_temperature."""

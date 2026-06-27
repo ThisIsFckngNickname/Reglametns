@@ -31,11 +31,11 @@ class Settings(BaseSettings):
     # Ollama settings
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b"
-    ollama_embedding_model: str = "nomic-embed-text"
+    ollama_embedding_model: str = "qwen2.5:3b"
 
     # Generation settings
-    generation_timeout: int = 120  # seconds
-    generation_max_tokens: int = 48000
+    generation_timeout: int = 600  # 10 minutes for slow Ollama
+    generation_max_tokens: int = 32000
     generation_temperature: float = 0.3
     generation_max_prompt_tokens: int = 28000
 

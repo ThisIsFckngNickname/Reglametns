@@ -23,7 +23,7 @@ export async function generateDocument(
 
   const response = await apiClient.post('/generator/generate', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 180000,  // 3 minutes for generation
+    timeout: 600000,  // 10 minutes for generation (slow Ollama)
     onDownloadProgress: () => {
       onProgress?.('generating', 50)
     },

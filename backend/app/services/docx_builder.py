@@ -5,22 +5,26 @@ Converts structured generation result (JSON) into a .docx file.
 Uses python-docx library.
 
 Supports:
-  - Title, description, sections/subsections
+  - Title page with company name, document title, status, date
+  - Table of Contents (TOC) field
+  - Sections/subsections with hierarchy
   - Terms and definitions table
   - Abbreviations table
   - References list
+  - Page numbers in footer
   - Holding-specific styling (fonts, margins)
   - GOST R 7.0.97-2016 formatting
 """
 
 import logging
 import os
+from datetime import datetime
 from typing import Optional
 
 from docx import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Cm, Pt
 from docx.oxml.ns import qn
+from docx.shared import Cm, Pt
 
 from app.models.company import Company
 
@@ -51,15 +55,24 @@ class DocxBuilder:
         # Apply base styling
         self._setup_default_style(doc)
 
-        # Apply GOST if enabled
+        # Apply GOST if enabled (margins + page numbers)
         if company.use_gost:
             self._apply_gost(doc)
 
         # Apply company-specific style
         self._apply_company_style(doc, company)
 
-        # Build document content
-        self._add_title(doc, result.get("title", "Документ"))
+        # Always add page numbers to footer
+        self._add_page_numbers(doc)
+
+        # === TITLE PAGE ===
+        self._add_title_page(doc, result, company)
+
+        # === TABLE OF CONTENTS ===
+        self._add_toc(doc)
+
+        # === DOCUMENT CONTENT ===
+        # Description
         self._add_description(doc, result.get("description", ""))
 
         # Sections
@@ -91,6 +104,8 @@ class DocxBuilder:
         logger.info(f"Document saved to {output_path}")
         return output_path
 
+    # ── Styling ──────────────────────────────────────────────────────────────
+
     def _setup_default_style(self, doc: DocxDocument) -> None:
         """Configure default document style."""
         style = doc.styles["Normal"]
@@ -102,15 +117,106 @@ class DocxBuilder:
         paragraph_format.space_after = Pt(6)
         paragraph_format.space_before = Pt(0)
 
-    def _add_title(self, doc: DocxDocument, title: str) -> None:
-        """Add document title (centered, bold, 14pt)."""
-        paragraph = doc.add_paragraph()
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = paragraph.add_run(title)
+    # ── Title page ───────────────────────────────────────────────────────────
+
+    def _add_title_page(self, doc: DocxDocument, result: dict, company: Company) -> None:
+        """Create a separate title page."""
+        title = result.get("title", "Документ")
+        now = datetime.now().strftime("%d.%m.%Y")
+
+        # Empty paragraphs for vertical spacing (top margin push-down)
+        for _ in range(6):
+            doc.add_paragraph()
+
+        # Company name
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(company.name)
         run.bold = True
+        run.font.size = Pt(16)
+        run.font.name = "Times New Roman"
+
+        # Spacing
+        for _ in range(3):
+            doc.add_paragraph()
+
+        # Document title
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(title)
+        run.bold = True
+        run.font.size = Pt(18)
+        run.font.name = "Times New Roman"
+
+        # Spacing
+        for _ in range(3):
+            doc.add_paragraph()
+
+        # Status
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run("Статус: Черновик")
         run.font.size = Pt(14)
         run.font.name = "Times New Roman"
-        paragraph.space_after = Pt(12)
+        run.italic = True
+
+        # Spacing
+        doc.add_paragraph()
+
+        # Date
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(f"Дата: {now}")
+        run.font.size = Pt(14)
+        run.font.name = "Times New Roman"
+
+        # Page break to move to document content
+        doc.add_page_break()
+
+    # ── Table of Contents ────────────────────────────────────────────────────
+
+    def _add_toc(self, doc: DocxDocument) -> None:
+        """Add a Table of Contents field (auto-updates when opened in Word)."""
+        # Heading
+        doc.add_heading("Оглавление", level=1)
+
+        # Create paragraph for TOC field
+        paragraph = doc.add_paragraph()
+
+        # TOC field: \o "1-3" = outline levels 1-3, \h = hyperlinks, \z = hide tab leader, \u = use applied style
+        run = paragraph.add_run()
+        fld_char_begin = run._element.makeelement(
+            qn("w:fldChar"), {qn("w:fldCharType"): "begin"}
+        )
+        run._element.append(fld_char_begin)
+
+        run2 = paragraph.add_run()
+        instr_text = run2._element.makeelement(qn("w:instrText"), {})
+        instr_text.text = ' TOC \\o "1-3" \\h \\z \\u '
+        run2._element.append(instr_text)
+
+        run3 = paragraph.add_run()
+        fld_char_separate = run3._element.makeelement(
+            qn("w:fldChar"), {qn("w:fldCharType"): "separate"}
+        )
+        run3._element.append(fld_char_separate)
+
+        # Placeholder text (will be replaced when TOC is updated in Word)
+        run4 = paragraph.add_run("[Обновите оглавление: правый клик → Обновить поле]")
+        run4.font.color.rgb = None  # default color
+        run4.font.size = Pt(11)
+        run4.font.italic = True
+
+        run5 = paragraph.add_run()
+        fld_char_end = run5._element.makeelement(
+            qn("w:fldChar"), {qn("w:fldCharType"): "end"}
+        )
+        run5._element.append(fld_char_end)
+
+        # Page break after TOC
+        doc.add_page_break()
+
+    # ── Content blocks ──────────────────────────────────────────────────────
 
     def _add_description(self, doc: DocxDocument, description: str) -> None:
         """Add document description paragraph."""
@@ -130,7 +236,7 @@ class DocxBuilder:
         subsections = section.get("subsections", [])
 
         # Add heading
-        heading = doc.add_heading(title, level=min(level, 3))
+        doc.add_heading(title, level=min(level, 3))
 
         # Add content
         if content:
@@ -196,6 +302,8 @@ class DocxBuilder:
             if source:
                 text += f" — {source}"
             doc.add_paragraph(text, style="List Number")
+
+    # ── Utilities ───────────────────────────────────────────────────────────
 
     def _set_cell_bold(self, cell) -> None:
         """Make cell text bold."""
@@ -274,9 +382,6 @@ class DocxBuilder:
             section.top_margin = Cm(2.0)
             section.bottom_margin = Cm(2.0)
 
-        # Page number in footer (bottom center)
-        self._add_page_numbers(doc)
-
     def _add_page_numbers(self, doc: DocxDocument) -> None:
         """Add page numbers to footer (bottom center)."""
         for section in doc.sections:
@@ -291,9 +396,7 @@ class DocxBuilder:
             run._element.append(fldChar1)
 
             run2 = paragraph.add_run()
-            instrText = run2._element.makeelement(
-                qn("w:instrText"), {}
-            )
+            instrText = run2._element.makeelement(qn("w:instrText"), {})
             instrText.text = " PAGE "
             run2._element.append(instrText)
 

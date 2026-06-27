@@ -43,7 +43,7 @@ export default function Header() {
           onClick={() => navigate('/')}
           style={{ fontSize: 18, fontWeight: 600 }}
         >
-          SRP
+          СРП
         </Button>
 
         <Space size="small">

@@ -30,8 +30,8 @@ class OllamaClient(LLMClient):
     async def chat_completion(
         self,
         messages: list[dict],
-        temperature: float = 0.0,
-        max_tokens: int = 48000,
+        temperature: float = settings.generation_temperature,
+        max_tokens: int = settings.generation_max_tokens,
     ) -> str:
         """Send chat completion to Ollama."""
         url = f"{self.base_url}/api/chat"
@@ -48,7 +48,7 @@ class OllamaClient(LLMClient):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=300) as client:
+            async with httpx.AsyncClient(timeout=settings.generation_timeout) as client:
                 response = await client.post(url, json=payload)
                 response.raise_for_status()
                 result = response.json()

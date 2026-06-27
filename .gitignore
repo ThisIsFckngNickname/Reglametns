@@ -47,5 +47,32 @@ mytemps/
 *.pytest_cache/
 backend/.pytest_cache/
 
+# PID files from dev scripts
+.backend.pid
+.frontend.pid
+.frontend.err
+.frontend.out
+
+# Generated OpenAPI spec
+openapi.json
+
+# ChromaDB vector store
+chroma_db/
+backend/chroma_db/
+
+# Dev logs
+backend/uvicorn.err
+backend/uvicorn.log
+
+# Temp test files
+check_procs.py
+start_backend_detached.py
+start_backend.ps1
+test_proc.txt
+test_survive.txt
+
+# Design docs (generated)
+DESIGN.md
+
 # Docker
 docker-data/

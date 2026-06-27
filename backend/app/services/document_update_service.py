@@ -11,8 +11,10 @@ from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import NotFoundException
 from app.models.document import Document
+from app.models.document_link import DocumentLink
 from app.models.document_status import DocumentStatus
 from app.schemas.document import DocumentResponse, DocumentUpdate
+from app.schemas.links import DocumentLinkCreate
 from app.services.storage_service import storage
 
 logger = logging.getLogger(__name__)
@@ -191,4 +193,121 @@ class DocumentUpdateService:
 
         # Delete the document - ORM cascades will delete all related records
         await db.delete(doc)
+        await db.flush()
+
+    async def analyze_document(
+        self, document_id: int, company_id: int, db: AsyncSession
+    ) -> dict:
+        """Manually trigger pattern analysis for a document."""
+        from app.services.pattern_analysis_service import pattern_analysis_service
+
+        # Verify ownership
+        stmt = select(Document).where(
+            Document.id == document_id,
+            Document.company_id == company_id,
+        )
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        result = await pattern_analysis_service.analyze_document(
+            document_id=document_id,
+            db=db,
+        )
+
+        return {
+            "document_id": document_id,
+            "company_id": company_id,
+            "structure_extracted": result.get("structure_extracted", False),
+            "style_extracted": result.get("style_extracted", False),
+            "terms_collected": result.get("terms_collected", 0),
+            "abbreviations_collected": result.get("abbreviations_collected", 0),
+            "message": "Document analyzed successfully" if "error" not in result else result["error"],
+        }
+
+    async def create_link(
+        self,
+        document_id: int,
+        data: DocumentLinkCreate,
+        user_id: int,
+        company_id: int,
+        db: AsyncSession,
+    ) -> dict:
+        """Create a document-to-document link."""
+        # Verify source document ownership
+        stmt = select(Document).where(
+            Document.id == document_id,
+            Document.company_id == company_id,
+        )
+        result = await db.execute(stmt)
+        source_doc = result.scalar_one_or_none()
+        if source_doc is None:
+            raise NotFoundException(message="Source document not found", field="document_id")
+
+        # Verify target document exists (in any company)
+        tgt_stmt = select(Document).where(Document.id == data.target_document_id)
+        tgt_result = await db.execute(tgt_stmt)
+        target_doc = tgt_result.scalar_one_or_none()
+        if target_doc is None:
+            raise NotFoundException(message="Target document not found", field="target_document_id")
+
+        # Prevent self-link
+        if document_id == data.target_document_id:
+            raise ValueError("Cannot create a link to itself")
+
+        # Create link
+        link = DocumentLink(
+            source_document_id=document_id,
+            target_document_id=data.target_document_id,
+            link_type=data.link_type,
+            description=data.description,
+            is_manual=True,
+            created_by=user_id,
+        )
+        db.add(link)
+        await db.flush()
+        await db.refresh(link)
+
+        return {
+            "id": link.id,
+            "source_document_id": link.source_document_id,
+            "target_document_id": link.target_document_id,
+            "link_type": link.link_type,
+            "is_manual": link.is_manual,
+            "description": link.description,
+            "created_by": link.created_by,
+            "created_at": link.created_at.isoformat(),
+            "target_title": target_doc.title,
+            "target_status": target_doc.status,
+        }
+
+    async def delete_link(
+        self,
+        document_id: int,
+        link_id: int,
+        company_id: int,
+        db: AsyncSession,
+    ) -> None:
+        """Delete a document link."""
+        # Verify source document ownership
+        stmt = select(Document).where(
+            Document.id == document_id,
+            Document.company_id == company_id,
+        )
+        result = await db.execute(stmt)
+        if result.scalar_one_or_none() is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        # Find the link
+        link_stmt = select(DocumentLink).where(
+            DocumentLink.id == link_id,
+            DocumentLink.source_document_id == document_id,
+        )
+        link_result = await db.execute(link_stmt)
+        link = link_result.scalar_one_or_none()
+        if link is None:
+            raise NotFoundException(message="Link not found", field="link_id")
+
+        await db.delete(link)
         await db.flush()

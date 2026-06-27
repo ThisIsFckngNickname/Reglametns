@@ -40,28 +40,65 @@ class DocumentReadService:
         if status:
             base_query = base_query.where(Document.status == status)
 
+        # NOTE: We do NOT apply search via SQL ilike() because SQLite's
+        # LOWER() doesn't handle Cyrillic/Unicode. Instead we fetch the
+        # page, filter in Python (which handles Unicode correctly), and
+        # re-fetch with adjusted offset if needed.
+        # This works efficiently for typical document counts (< 10000).
+
         if search:
-            pattern = f"%{search}%"
-            base_query = base_query.where(
-                Document.title.ilike(pattern)
-                | Document.description.ilike(pattern)
+            search_lower = search.lower()
+            # Fetch matching IDs by loading ALL docs for this company
+            all_stmt = select(Document).where(Document.company_id == company_id)
+            if status:
+                all_stmt = all_stmt.where(Document.status == status)
+            all_result = await db.execute(all_stmt)
+            all_docs = all_result.scalars().all()
+
+            # Python-side Unicode-safe filtering
+            matching_ids = []
+            for d in all_docs:
+                if search_lower in (d.title or '').lower() or \
+                   (d.description and search_lower in d.description.lower()):
+                    matching_ids.append(d.id)
+
+            total = len(matching_ids)
+
+            # Paginate the matching IDs
+            offset = (page - 1) * page_size
+            page_ids = matching_ids[offset:offset + page_size]
+
+            if page_ids:
+                from sqlalchemy import case as sqlalchemy_case
+                # Preserve order from matching_ids
+                ordering = sqlalchemy_case(
+                    {Document.id == id_: idx for idx, id_ in enumerate(page_ids)},
+                    value=None,
+                )
+                query = (
+                    select(Document)
+                    .where(Document.id.in_(page_ids))
+                    .order_by(ordering)
+                )
+                result = await db.execute(query)
+                documents = result.scalars().all()
+            else:
+                documents = []
+        else:
+            # No search: normal pagination
+            count_query = select(func.count()).select_from(base_query.subquery())
+            count_result = await db.execute(count_query)
+            total = count_result.scalar() or 0
+
+            offset = (page - 1) * page_size
+            query = (
+                base_query
+                .order_by(Document.updated_at.desc())
+                .offset(offset)
+                .limit(page_size)
             )
-
-        # Count
-        count_query = select(func.count()).select_from(base_query.subquery())
-        count_result = await db.execute(count_query)
-        total = count_result.scalar() or 0
-
-        # Paginate
-        offset = (page - 1) * page_size
-        query = (
-            base_query
-            .order_by(Document.updated_at.desc())
-            .offset(offset)
-            .limit(page_size)
-        )
-        result = await db.execute(query)
-        documents = result.scalars().all()
+            result = await db.execute(query)
+            documents = result.scalars().all()
 
         items = []
         for doc in documents:
@@ -79,6 +116,7 @@ class DocumentReadService:
                 title=doc.title,
                 description=doc.description,
                 status=doc.status,
+                was_analyzed=doc.was_analyzed,
                 created_at=doc.created_at,
                 updated_at=doc.updated_at,
                 file_type=latest_ver.file_type if latest_ver else None,
@@ -342,4 +380,96 @@ class DocumentReadService:
                 "cols_count": t.cols_count,
             }
             for t in version.tables
+        ]
+
+    async def _verify_ownership(
+        self, document_id: int, company_id: int, db: AsyncSession
+    ):
+        """Verify that a document belongs to the given company.
+        
+        Returns the Document if found, None otherwise.
+        """
+        stmt = select(Document).where(
+            Document.id == document_id,
+            Document.company_id == company_id,
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_outgoing_links(
+        self, document_id: int, company_id: int, db: AsyncSession
+    ) -> List[dict]:
+        """Get outgoing links from a document with target document info."""
+        from app.models.document_link import DocumentLink
+
+        # Verify ownership
+        doc = await self._verify_ownership(document_id, company_id, db)
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        stmt = (
+            select(DocumentLink)
+            .where(DocumentLink.source_document_id == document_id)
+            .join(Document, DocumentLink.target_document_id == Document.id)
+            .add_columns(
+                Document.title.label("target_title"),
+                Document.status.label("target_status"),
+            )
+        )
+        result = await db.execute(stmt)
+        rows = result.all()
+
+        return [
+            {
+                "id": row[0].id,
+                "source_document_id": row[0].source_document_id,
+                "target_document_id": row[0].target_document_id,
+                "link_type": row[0].link_type,
+                "is_manual": row[0].is_manual,
+                "description": row[0].description,
+                "created_by": row[0].created_by,
+                "created_at": row[0].created_at.isoformat() if row[0].created_at else None,
+                "target_title": row[1],
+                "target_status": row[2],
+            }
+            for row in rows
+        ]
+
+    async def get_incoming_links(
+        self, document_id: int, company_id: int, db: AsyncSession
+    ) -> List[dict]:
+        """Get incoming links to a document with source document info."""
+        from app.models.document_link import DocumentLink
+
+        # Verify ownership
+        doc = await self._verify_ownership(document_id, company_id, db)
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        stmt = (
+            select(DocumentLink)
+            .where(DocumentLink.target_document_id == document_id)
+            .join(Document, DocumentLink.source_document_id == Document.id)
+            .add_columns(
+                Document.title.label("source_title"),
+                Document.status.label("source_status"),
+            )
+        )
+        result = await db.execute(stmt)
+        rows = result.all()
+
+        return [
+            {
+                "id": row[0].id,
+                "source_document_id": row[0].source_document_id,
+                "target_document_id": row[0].target_document_id,
+                "link_type": row[0].link_type,
+                "is_manual": row[0].is_manual,
+                "description": row[0].description,
+                "created_by": row[0].created_by,
+                "created_at": row[0].created_at.isoformat() if row[0].created_at else None,
+                "source_title": row[1],
+                "source_status": row[2],
+            }
+            for row in rows
         ]
