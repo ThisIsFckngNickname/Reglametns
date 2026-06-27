@@ -24,7 +24,7 @@ frontend/.vite/
 
 # Uploads / Storage
 uploads/
-storage/
+/storage/
 backend/uploads/
 backend/storage/
 
