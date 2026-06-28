@@ -63,6 +63,7 @@ backend/chroma_db/
 # Dev logs
 backend/uvicorn.err
 backend/uvicorn.log
+backend_*.log
 
 # Temp test files
 check_procs.py

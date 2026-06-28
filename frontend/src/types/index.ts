@@ -134,20 +134,21 @@ export interface AdminUserResponse {
 
 // ---- Document types ----
 
-export type DocumentStatus = 'draft' | 'review' | 'approved' | 'archived'
+export type DocumentStatus = 'draft' | 'review' | 'approved' | 'cancelled' | 'archived'
 
 export interface DocumentListItem {
   id: number
   title: string
+  description?: string | null
   status: DocumentStatus
-  file_type: 'docx' | 'pdf'
-  file_size: number
-  version_number: number
-  current_version: DocumentVersionBrief | null
-  has_terms: boolean
-  has_abbreviations: boolean
+  file_type?: string | null
+  file_size?: number | null
+  version_number?: number | null
+  current_version?: DocumentVersionBrief | null
+  has_terms?: boolean
+  has_abbreviations?: boolean
   was_analyzed?: boolean
-  created_by: { id: number; email: string }
+  created_by?: { id: number; email: string } | null
   created_at: string
   updated_at: string
 }

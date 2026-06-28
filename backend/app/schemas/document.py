@@ -56,6 +56,12 @@ class DocumentUpdate(BaseModel):
         return v
 
 
+class StatusChangeRequest(BaseModel):
+    """Request body for changing document status with optional comment."""
+    status: DocumentStatus
+    comment: Optional[str] = None
+
+
 class DocumentStats(BaseModel):
     """Statistics about a document."""
     sections_count: int = 0

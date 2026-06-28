@@ -30,3 +30,8 @@ export async function getCurrentUser(): Promise<UserProfile> {
   const response = await apiClient.get<UserProfile>('/auth/me')
   return response.data
 }
+
+export async function changePassword(data: { current_password: string; new_password: string }): Promise<{ message: string }> {
+  const response = await apiClient.post('/auth/change-password', data)
+  return response.data
+}

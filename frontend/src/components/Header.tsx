@@ -81,6 +81,24 @@ export default function Header() {
           </Tag>
         )}
 
+        {user?.active_company && user?.companies && (
+          (() => {
+            const membership = user.companies.find(c => c.company_id === user.active_company?.id)
+            const roleLabels: Record<string, { label: string; color: string }> = {
+              admin: { label: 'Админ', color: 'red' },
+              editor: { label: 'Редактор', color: 'blue' },
+              member: { label: 'Редактор', color: 'blue' },
+              viewer: { label: 'Просмотр', color: 'default' },
+            }
+            const roleInfo = membership ? roleLabels[membership.role] || { label: membership.role, color: 'default' } : null
+            return roleInfo ? (
+              <Tag color={roleInfo.color} style={{ fontSize: 12 }}>
+                {roleInfo.label}
+              </Tag>
+            ) : null
+          })()
+        )}
+
         {user && (
           <Text type="secondary">
             <UserOutlined style={{ marginRight: 4 }} />

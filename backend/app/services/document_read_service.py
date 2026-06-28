@@ -382,6 +382,40 @@ class DocumentReadService:
             for t in version.tables
         ]
 
+    async def get_status_history(
+        self, document_id: int, company_id: int, db: AsyncSession
+    ) -> list[dict]:
+        """Get status change history for a document."""
+        from app.models.document_status_log import DocumentStatusLog
+
+        # Verify ownership
+        doc = await self._verify_ownership(document_id, company_id, db)
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        stmt = (
+            select(DocumentStatusLog)
+            .where(DocumentStatusLog.document_id == document_id)
+            .options(selectinload(DocumentStatusLog.changer))
+            .order_by(DocumentStatusLog.created_at.desc())
+        )
+        result = await db.execute(stmt)
+        logs = result.scalars().all()
+
+        return [
+            {
+                "id": log.id,
+                "document_id": log.document_id,
+                "from_status": log.from_status,
+                "to_status": log.to_status,
+                "changed_by": log.changed_by,
+                "changer_email": log.changer.email if log.changer else None,
+                "reason": log.reason,
+                "created_at": log.created_at.isoformat() if log.created_at else None,
+            }
+            for log in logs
+        ]
+
     async def _verify_ownership(
         self, document_id: int, company_id: int, db: AsyncSession
     ):

@@ -145,6 +145,34 @@ async def logout(response: Response):
     return {"message": "Logged out"}
 
 
+@router.post("/change-password")
+async def change_password(
+    body: dict,
+    user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """Change the current user's password.
+
+    Body: {"current_password": "...", "new_password": "..."}
+    """
+    current_password = body.get("current_password")
+    new_password = body.get("new_password")
+
+    if not current_password or not new_password:
+        from app.core.exceptions import BadRequestException
+        raise BadRequestException(message="Both current_password and new_password are required")
+
+    if len(new_password) < 6:
+        from app.core.exceptions import BadRequestException
+        raise BadRequestException(message="New password must be at least 6 characters")
+
+    return await auth_service.change_password(
+        user_id=user.id,
+        current_password=current_password,
+        new_password=new_password,
+    )
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_me(
     user: User = Depends(get_current_user),

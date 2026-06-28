@@ -5,7 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ForbiddenException, UnauthorizedException
+from app.core.exceptions import ForbiddenException, NoActiveCompany, UnauthorizedException
 from app.core.rate_limiter import RateLimiter
 from app.core.security import decode_token
 from app.database import get_db
@@ -58,18 +58,42 @@ async def require_admin(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Dependency that checks if the user has admin role in any company."""
+    """Dependency that checks if the user has admin role in their active company."""
+    if not user.active_company_id:
+        raise ForbiddenException(message="Admin privileges required")
+
     stmt = select(UserCompany).where(
         UserCompany.user_id == user.id,
+        UserCompany.company_id == user.active_company_id,
         UserCompany.role == "admin",
     ).limit(1)
     result = await db.execute(stmt)
     admin_entry = result.scalar_one_or_none()
 
     if admin_entry is None:
-        raise ForbiddenException(
-            message="Admin privileges required"
-        )
+        raise ForbiddenException(message="Admin privileges required")
+
+    return user
+
+
+async def require_editor(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Dependency that checks if the user has admin or editor role in their active company."""
+    if not user.active_company_id:
+        raise NoActiveCompany()
+
+    stmt = select(UserCompany).where(
+        UserCompany.user_id == user.id,
+        UserCompany.company_id == user.active_company_id,
+        UserCompany.role.in_(["admin", "editor", "member"]),
+    ).limit(1)
+    result = await db.execute(stmt)
+    entry = result.scalar_one_or_none()
+
+    if entry is None:
+        raise ForbiddenException(message="Editor privileges required")
 
     return user
 
@@ -87,6 +111,21 @@ async def require_active_company(
 ) -> User:
     """Check that user has an active company selected."""
     if not current_user.active_company_id:
-        from app.core.exceptions import NoActiveCompany
         raise NoActiveCompany()
     return current_user
+
+
+async def get_is_admin(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> bool:
+    """Check if the current user has admin role in their active company."""
+    if not user.active_company_id:
+        return False
+    stmt = select(UserCompany).where(
+        UserCompany.user_id == user.id,
+        UserCompany.company_id == user.active_company_id,
+        UserCompany.role == "admin",
+    ).limit(1)
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none() is not None

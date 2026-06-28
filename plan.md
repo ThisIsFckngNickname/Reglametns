@@ -775,3 +775,36 @@ draft → review → approved → (cancelled | archived)
 
 #### Tests
 - 214 passed, 17 skipped, 0 failed
+
+---
+## Stage 2 (Phase 3) — Документооборот (статусы, права, роли) (June 27, 2026)
+
+### Delivered
+
+#### Backend
+- `CANCELLED = "cancelled"` добавлен в `DocumentStatus` enum
+- `POST /api/v1/documents/{id}/status` — смена статуса с валидацией переходов и комментарием
+  - Правила: `draft→review|archived`, `review→draft|approved|archived`, `approved→cancelled|archived`, `cancelled|archived` — терминальные
+  - При невалидном переходе — 400 BadRequest
+- `GET /api/v1/documents/{id}/history` — история смены статусов (Timeline) с email автора и комментарием
+- `POST /api/v1/auth/change-password` — смена пароля (current + new)
+- **Валидация переходов статусов** — модуль `STATUS_TRANSITIONS` в `document_update_service.py`
+- **`require_admin` исправлен** — теперь проверяет роль в активной компании пользователя, а не в любой
+- **`require_editor` middleware** — доступ к мутирующим эндпоинтам только для admin/editor (8 endpoints переключены)
+- **Роль по умолчанию** при регистрации: `"member"` → `"editor"`
+- **`comment` field** добавлен в `StatusChangeRequest` и передаётся в `DocumentStatusLog.reason`
+
+#### Frontend
+- **Цвета статусов исправлены** по спецификации: draft=серый, review=оранжевый, approved=зелёный, cancelled=красный, archived=серый
+- **Статус `cancelled`** добавлен в `DocumentStatus` type, labels (`Отменён`) и colors (`red`)
+- **Вкладка «История статусов»** на детальной странице документа (Timeline с цветными точками, комментариями, датами)
+- **Роль пользователя** отображается в Header (Админ/Редактор/Просмотр)
+- **Смена пароля** на странице ProfilePage (текущий + новый + подтверждение)
+- **Статус `cancelled`** исключён из выпадающего списка смены статуса (только через API)
+
+#### Infrastructure
+- `require_editor` исправлен: `NoActiveCompany()` вместо `ForbiddenException()` при отсутствии активной компании (fix для теста `test_upload_no_active_company`)
+
+#### Tests
+- 214 passed, 17 skipped, 0 failed
+

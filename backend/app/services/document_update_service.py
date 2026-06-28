@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import BadRequestException, NotFoundException
 from app.models.document import Document
 from app.models.document_link import DocumentLink
 from app.models.document_status import DocumentStatus
@@ -18,6 +18,16 @@ from app.schemas.links import DocumentLinkCreate
 from app.services.storage_service import storage
 
 logger = logging.getLogger(__name__)
+
+# ─── Status Transition Rules ──────────────────────────────────────────
+
+STATUS_TRANSITIONS = {
+    DocumentStatus.DRAFT: {DocumentStatus.REVIEW, DocumentStatus.ARCHIVED},
+    DocumentStatus.REVIEW: {DocumentStatus.DRAFT, DocumentStatus.APPROVED, DocumentStatus.ARCHIVED},
+    DocumentStatus.APPROVED: {DocumentStatus.CANCELLED, DocumentStatus.ARCHIVED},
+    DocumentStatus.CANCELLED: {DocumentStatus.DRAFT, DocumentStatus.ARCHIVED},  # Cancelled → Draft or Archived
+    DocumentStatus.ARCHIVED: set(),   # Terminal
+}
 
 
 class DocumentUpdateService:
@@ -31,6 +41,7 @@ class DocumentUpdateService:
     async def update_document(
         self, id: int, data: DocumentUpdate, company_id: int, db: AsyncSession,
         user_id: Optional[int] = None,
+        is_admin: bool = False,
     ) -> DocumentResponse:
         """Update document metadata."""
         stmt = select(Document).where(
@@ -50,6 +61,14 @@ class DocumentUpdateService:
         if data.description is not None:
             doc.description = data.description
         if data.status is not None:
+            # Validate transition (admins can bypass)
+            if old_status != data.status:
+                if not is_admin:
+                    allowed = STATUS_TRANSITIONS.get(old_status, set())
+                    if data.status not in allowed:
+                        raise BadRequestException(
+                            message=f"Cannot change status from {old_status} to {data.status}",
+                        )
             doc.status = data.status
 
         await db.flush()
@@ -61,6 +80,7 @@ class DocumentUpdateService:
                 from_status=old_status,
                 to_status=data.status,
                 user_id=user_id,
+                reason=getattr(data, 'comment', None),
                 db=db,
             )
 
@@ -85,6 +105,79 @@ class DocumentUpdateService:
 
         return await self.get_document(id, company_id, db)
 
+    async def change_status(
+        self,
+        document_id: int,
+        new_status: DocumentStatus,
+        comment: Optional[str],
+        company_id: int,
+        user_id: int,
+        db: AsyncSession,
+        is_admin: bool = False,
+    ) -> dict:
+        """Change document status with validation and optional comment."""
+        # Verify document ownership
+        stmt = select(Document).where(
+            Document.id == document_id,
+            Document.company_id == company_id,
+        )
+        result = await db.execute(stmt)
+        doc = result.scalar_one_or_none()
+
+        if doc is None:
+            raise NotFoundException(message="Document not found", field="document_id")
+
+        old_status = doc.status
+
+        if old_status == new_status:
+            return {"message": "Status unchanged", "status": new_status.value}
+
+        # Validate transition (admins can bypass)
+        if not is_admin:
+            allowed = STATUS_TRANSITIONS.get(old_status, set())
+            if new_status not in allowed:
+                raise BadRequestException(
+                    message=f"Cannot change status from {old_status} to {new_status}",
+                )
+
+        # Apply new status
+        doc.status = new_status
+        await db.flush()
+
+        # Log status change with optional comment
+        await self._log_status_change(
+            document_id=document_id,
+            from_status=old_status,
+            to_status=new_status,
+            user_id=user_id,
+            reason=comment,
+            db=db,
+        )
+
+        # Trigger pattern analysis if approved and not yet analyzed
+        if new_status == DocumentStatus.APPROVED and not doc.was_analyzed:
+            from app.services.pattern_analysis_service import pattern_analysis_service
+            try:
+                analysis_result = await pattern_analysis_service.analyze_document(
+                    document_id=document_id,
+                    db=db,
+                )
+                logger.info(
+                    f"Pattern analysis triggered for document {document_id}: {analysis_result}"
+                )
+            except Exception as e:
+                logger.error(f"Pattern analysis failed for document {document_id}: {e}", exc_info=True)
+
+        # Trigger RAG indexing when approved
+        if new_status == DocumentStatus.APPROVED:
+            await self._trigger_rag_indexing(document_id, company_id, db)
+
+        return {
+            "message": f"Status changed from {old_status.value} to {new_status.value}",
+            "from_status": old_status.value,
+            "to_status": new_status.value,
+        }
+
     async def _log_status_change(
         self,
         document_id: int,
@@ -92,6 +185,7 @@ class DocumentUpdateService:
         to_status: DocumentStatus,
         user_id: Optional[int],
         db: AsyncSession,
+        reason: Optional[str] = None,
     ) -> None:
         """Log a document status change."""
         from app.models.document_status_log import DocumentStatusLog
@@ -100,6 +194,7 @@ class DocumentUpdateService:
             from_status=from_status,
             to_status=to_status,
             changed_by=user_id,
+            reason=reason,
         )
         db.add(log)
 

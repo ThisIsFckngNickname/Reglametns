@@ -9,9 +9,11 @@ import {
   Spin,
   Descriptions,
   Tag,
+  Input,
+  Divider,
 } from 'antd'
 import { useNavigate } from 'react-router-dom'
-import { getCurrentUser } from '../api/auth'
+import { getCurrentUser, changePassword } from '../api/auth'
 import { getCompanies, setActiveCompany } from '../api/companies'
 import { getApiErrorMessage } from '../api/client'
 import { useAuthStore } from '../store/authStore'
@@ -28,6 +30,13 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordChanging, setPasswordChanging] = useState(false)
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [passwordSuccess, setPasswordSuccess] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -93,6 +102,31 @@ export default function ProfilePage() {
         <Spin size="large" tip="Загрузка профиля..." />
       </div>
     )
+  }
+
+  const handleChangePassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      setPasswordError('Новый пароль должен содержать минимум 6 символов')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Пароли не совпадают')
+      return
+    }
+    setPasswordChanging(true)
+    setPasswordError(null)
+    setPasswordSuccess(false)
+    try {
+      await changePassword({ current_password: currentPassword, new_password: newPassword })
+      setPasswordSuccess(true)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    } catch (err) {
+      setPasswordError(getApiErrorMessage(err))
+    } finally {
+      setPasswordChanging(false)
+    }
   }
 
   const userCompanyLabel = (company: Company) =>
@@ -181,6 +215,64 @@ export default function ProfilePage() {
               </Button>
             </Space>
           </div>
+        </Space>
+      </Card>
+
+      <Divider />
+
+      <Card>
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <Title level={3}>Смена пароля</Title>
+
+          {passwordError && (
+            <Alert
+              message="Ошибка"
+              description={passwordError}
+              type="error"
+              showIcon
+              closable
+              onClose={() => setPasswordError(null)}
+            />
+          )}
+
+          {passwordSuccess && (
+            <Alert
+              message="Пароль изменён"
+              description="Пароль успешно изменён"
+              type="success"
+              showIcon
+              style={{ marginBottom: 12 }}
+            />
+          )}
+
+          <Input.Password
+            placeholder="Текущий пароль"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            size="large"
+          />
+          <Input.Password
+            placeholder="Новый пароль (минимум 6 символов)"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            size="large"
+          />
+          <Input.Password
+            placeholder="Подтвердите новый пароль"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            size="large"
+          />
+          <Button
+            type="primary"
+            block
+            size="large"
+            loading={passwordChanging}
+            disabled={!currentPassword || !newPassword || !confirmPassword}
+            onClick={handleChangePassword}
+          >
+            Сменить пароль
+          </Button>
         </Space>
       </Card>
     </div>

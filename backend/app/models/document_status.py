@@ -9,6 +9,7 @@ class DocumentStatus(str, Enum):
     DRAFT = "draft"
     REVIEW = "review"
     APPROVED = "approved"
+    CANCELLED = "cancelled"
     ARCHIVED = "archived"
 
     @classmethod

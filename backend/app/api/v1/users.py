@@ -274,6 +274,12 @@ async def admin_set_user_company_role(
     if not company:
         raise NotFoundException(message="Компания не найдена", field="company_id")
 
+    VALID_ROLES = {"admin", "editor", "viewer"}
+    if role not in VALID_ROLES:
+        raise BadRequestException(
+            message=f"Недопустимая роль '{role}'. Допустимые роли: {', '.join(sorted(VALID_ROLES))}"
+        )
+
     # Проверка существующей связи
     link_stmt = select(UserCompany).where(
         UserCompany.user_id == user_id,

@@ -46,7 +46,7 @@ class AuthService:
             user_company = UserCompany(
                 user_id=user.id,
                 company_id=first_company.id,
-                role="member",
+                role="editor",
             )
             self.db.add(user_company)
             user.active_company_id = first_company.id
@@ -189,6 +189,23 @@ class AuthService:
             "message": "Active company set successfully",
             "active_company": CompanyBrief.model_validate(company),
         }
+
+    async def change_password(self, user_id: int, current_password: str, new_password: str) -> dict:
+        """Change user password."""
+        stmt = select(User).where(User.id == user_id)
+        result = await self.db.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if user is None:
+            raise NotFoundException(message="User not found")
+
+        if not user.check_password(current_password):
+            raise UnauthorizedException(message="Current password is incorrect")
+
+        user.set_password(new_password)
+        await self.db.flush()
+
+        return {"message": "Password changed successfully"}
 
     async def get_companies_list(self, user_id: int) -> list[Company]:
         """Get list of user's companies with their roles."""

@@ -177,3 +177,19 @@ export async function getDocumentTables(id: number): Promise<{ tables: DocumentT
   const data = response.data
   return { tables: Array.isArray(data) ? data : data.tables ?? [] }
 }
+
+export interface StatusHistoryItem {
+  id: number
+  document_id: number
+  from_status: string | null
+  to_status: string
+  changed_by: number | null
+  changer_email: string | null
+  reason: string | null
+  created_at: string
+}
+
+export async function getDocumentHistory(id: number): Promise<StatusHistoryItem[]> {
+  const response = await apiClient.get<StatusHistoryItem[]>(`/documents/${id}/history`)
+  return response.data
+}

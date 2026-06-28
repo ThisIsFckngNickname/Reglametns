@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Tabs,
@@ -21,6 +21,7 @@ import {
   Upload,
   Input,
   message,
+  Timeline,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -62,7 +63,9 @@ import {
   getIncomingLinks,
   createDocumentLink,
   deleteDocumentLink,
+  getDocumentHistory,
 } from '../api/documents'
+import type { StatusHistoryItem } from '../api/documents'
 import { createDocumentVersion } from '../api/versions'
 import { STATUS_LABELS, STATUS_COLORS, formatFileSize } from '../utils/statusHelpers'
 import dayjs from 'dayjs'
@@ -137,6 +140,9 @@ export default function DocumentDetailPage() {
   const [incomingLinks, setIncomingLinks] = useState<DocumentLink[]>([])
   const [linksLoading, setLinksLoading] = useState(false)
 
+  const [statusHistory, setStatusHistory] = useState<StatusHistoryItem[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+
   const [linkModalOpen, setLinkModalOpen] = useState(false)
   const [newLinkTargetId, setNewLinkTargetId] = useState<number | undefined>(undefined)
   const [newLinkType, setNewLinkType] = useState<'references' | 'amends' | 'supersedes' | 'related'>('references')
@@ -145,6 +151,7 @@ export default function DocumentDetailPage() {
   const [linkSearchText, setLinkSearchText] = useState('')
   const [linkSearchResults, setLinkSearchResults] = useState<DocumentListItem[]>([])
   const [linkSearchLoading, setLinkSearchLoading] = useState(false)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
   const { user } = useAuthStore()
   const isAdmin = user?.companies?.some((h) => h.role === 'admin') ?? false
@@ -260,21 +267,40 @@ export default function DocumentDetailPage() {
     }
   }, [documentId])
 
-  const searchDocumentsForLink = useCallback(async (search: string) => {
-    if (!search || search.length < 2) {
+  const loadHistory = useCallback(async () => {
+    if (!documentId) return
+    setHistoryLoading(true)
+    try {
+      const data = await getDocumentHistory(documentId)
+      setStatusHistory(data)
+    } catch {
+      // Silent fail
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [documentId])
+
+  const handleLinkSearch = useCallback((value: string) => {
+    setLinkSearchText(value)
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    if (!value || value.length < 2) {
       setLinkSearchResults([])
       return
     }
     setLinkSearchLoading(true)
-    try {
-      const result = await getDocuments({ search, page_size: 20 })
-      const filtered = (result.items || []).filter(d => d.id !== documentId)
-      setLinkSearchResults(filtered)
-    } catch {
-      setLinkSearchResults([])
-    } finally {
-      setLinkSearchLoading(false)
-    }
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const result = await getDocuments({ search: value, page_size: 20 })
+        const filtered = (result.items || []).filter(d => d.id !== documentId)
+        setLinkSearchResults(filtered)
+      } catch (err) {
+        console.error('Search failed:', err)
+        message.warning('Ошибка при поиске документов. Проверьте соединение.')
+        setLinkSearchResults([])
+      } finally {
+        setLinkSearchLoading(false)
+      }
+    }, 300)
   }, [documentId])
 
   const handleTabChange = (activeKey: string) => {
@@ -296,6 +322,9 @@ export default function DocumentDetailPage() {
         break
       case 'links':
         if (links.length === 0 && incomingLinks.length === 0) loadLinks()
+        break
+      case 'history':
+        if (statusHistory.length === 0) loadHistory()
         break
     }
   }
@@ -505,7 +534,16 @@ export default function DocumentDetailPage() {
 
   // Status options (disallow current status)
   const statusOptions = (Object.keys(STATUS_LABELS) as DocumentStatus[])
-    .filter((s) => s !== 'archived') // Can't change from archived
+    .filter((s) => {
+      if (s === 'archived') return false  // handled by separate button
+      if (s === doc.status) return true
+      // Admin sees all statuses (no transition restrictions)
+      if (isAdmin) return true
+      // Non-admin: respect transition constraints
+      if (s === 'cancelled') return doc.status === 'approved'
+      if (doc.status === 'cancelled') return s === 'draft'
+      return true
+    })
     .map((s) => ({
       value: s,
       label: STATUS_LABELS[s],
@@ -1123,16 +1161,18 @@ export default function DocumentDetailPage() {
                             'Документы не найдены'
                           }
                           filterOption={false}
-                          onSearch={(value) => {
-                            setLinkSearchText(value)
-                            searchDocumentsForLink(value)
-                          }}
+                          onSearch={handleLinkSearch}
                           onChange={(value) => setNewLinkTargetId(value)}
                           style={{ width: '100%', marginTop: 4 }}
                           loading={linkSearchLoading}
-                        >
-                          {linkSearchResults.map((doc) => (
-                            <Select.Option key={doc.id} value={doc.id}>
+                          options={linkSearchResults.map(doc => ({
+                            value: doc.id,
+                            label: `${doc.title} #${doc.id}`
+                          }))}
+                          optionRender={(option) => {
+                            const doc = linkSearchResults.find(d => d.id === option.data.value)
+                            if (!doc) return option.data.label ?? String(option.data.value)
+                            return (
                               <Space>
                                 <Tag color={STATUS_COLORS[doc.status]} style={{ marginRight: 4 }}>
                                   #{doc.id}
@@ -1140,12 +1180,12 @@ export default function DocumentDetailPage() {
                                 <span>{doc.title}</span>
                                 <Tag color={STATUS_COLORS[doc.status]}>{STATUS_LABELS[doc.status]}</Tag>
                                 <Text type="secondary" style={{ fontSize: 12 }}>
-                                  {doc.file_type?.toUpperCase()} v{doc.version_number}
+                                  {doc.file_type?.toUpperCase() ?? ''} v{doc.version_number ?? '?'}
                                 </Text>
                               </Space>
-                            </Select.Option>
-                          ))}
-                        </Select>
+                            )
+                          }}
+                        />
                         {newLinkTargetId && (
                           <div style={{ marginTop: 4 }}>
                             <Text type="success">
@@ -1166,6 +1206,46 @@ export default function DocumentDetailPage() {
                       </div>
                     </Space>
                   </Modal>
+                </div>
+              ),
+            },
+            {
+              key: 'history',
+              label: `История статусов (${statusHistory.length})`,
+              children: (
+                <div>
+                  {historyLoading ? (
+                    <Spin style={{ display: 'block', margin: '40px auto' }} />
+                  ) : statusHistory.length === 0 ? (
+                    <Empty description="История статусов пуста" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ) : (
+                    <Timeline
+                      items={statusHistory.map((item) => ({
+                        color: item.to_status === 'approved' ? 'green'
+                               : item.to_status === 'cancelled' ? 'red'
+                               : item.to_status === 'archived' ? 'gray'
+                               : item.to_status === 'review' ? 'orange'
+                               : 'blue',
+                        children: (
+                          <div>
+                            <div>
+                              <Tag>{item.from_status ? (STATUS_LABELS[item.from_status as DocumentStatus] || item.from_status) : '—'}</Tag>
+                              <span style={{ margin: '0 8px' }}>→</span>
+                              <Tag color={STATUS_COLORS[item.to_status as DocumentStatus]}>{STATUS_LABELS[item.to_status as DocumentStatus] || item.to_status}</Tag>
+                            </div>
+                            {item.reason && (
+                              <div style={{ marginTop: 4, color: '#666' }}>
+                                <em>{item.reason}</em>
+                              </div>
+                            )}
+                            <div style={{ marginTop: 2, fontSize: 12, color: '#999' }}>
+                              {item.changer_email || 'Система'} · {dayjs(item.created_at).format('DD.MM.YYYY HH:mm')}
+                            </div>
+                          </div>
+                        ),
+                      }))}
+                    />
+                  )}
                 </div>
               ),
             },

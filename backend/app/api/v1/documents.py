@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_active_company, require_admin
+from app.api.deps import get_current_user, require_active_company, require_admin, require_editor, get_is_admin
 from app.core.exceptions import NotFoundException
 from app.database import get_db
 from app.models.document import Document
@@ -21,6 +21,7 @@ from app.schemas.document import (
     DocumentSectionResponse,
     DocumentUpdate,
     PaginatedResponse,
+    StatusChangeRequest,
     UploadResponse,
 )
 from app.schemas.links import DocumentLinkCreate
@@ -35,7 +36,7 @@ async def upload_document(
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
-    user: User = Depends(require_active_company),
+    user: User = Depends(require_editor),
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a document (Word .docx or PDF), parse it, and store all extracted data."""
@@ -89,8 +90,9 @@ async def get_document(
 async def update_document(
     document_id: int,
     body: DocumentUpdate,
-    user: User = Depends(require_active_company),
+    user: User = Depends(require_editor),
     db: AsyncSession = Depends(get_db),
+    is_admin: bool = Depends(get_is_admin),
 ):
     """Update document metadata (title, description, status)."""
     return await document_service.update_document(
@@ -99,13 +101,14 @@ async def update_document(
         company_id=user.active_company_id,
         db=db,
         user_id=user.id,
+        is_admin=is_admin,
     )
 
 
 @router.delete("/{document_id}", status_code=204)
 async def archive_document(
     document_id: int,
-    user: User = Depends(require_active_company),
+    user: User = Depends(require_editor),
     db: AsyncSession = Depends(get_db),
 ):
     """Archive a document (set status to 'archived')."""
@@ -237,7 +240,7 @@ async def create_document_version(
     document_id: int,
     file: UploadFile = File(...),
     version_notes: Optional[str] = Form(None),
-    user: User = Depends(require_active_company),
+    user: User = Depends(require_editor),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new version of a document by uploading a new file."""
@@ -268,7 +271,7 @@ async def get_document_tables(
 @router.post("/{document_id}/analyze")
 async def analyze_document(
     document_id: int,
-    user: User = Depends(require_active_company),
+    user: User = Depends(require_editor),
     db: AsyncSession = Depends(get_db),
 ):
     """Manually trigger pattern analysis for a document.
@@ -357,6 +360,50 @@ async def analyze_documents_batch(
     }
 
 
+@router.post("/{document_id}/status")
+async def change_document_status(
+    document_id: int,
+    body: StatusChangeRequest,
+    user: User = Depends(require_editor),
+    db: AsyncSession = Depends(get_db),
+    is_admin: bool = Depends(get_is_admin),
+):
+    """Change document status with comment.
+    Validates allowed transitions for non-admin users.
+    Admins can bypass transition restrictions.
+
+    Allowed transitions:
+    - draft → review, archived
+    - review → draft, approved, archived
+    - approved → cancelled, archived
+    - cancelled → draft, archived
+    - archived → (terminal)
+    """
+    return await document_service.change_status(
+        document_id=document_id,
+        new_status=body.status,
+        comment=body.comment,
+        company_id=user.active_company_id,
+        db=db,
+        user_id=user.id,
+        is_admin=is_admin,
+    )
+
+
+@router.get("/{document_id}/history")
+async def get_document_history(
+    document_id: int,
+    user: User = Depends(require_active_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get status change history for a document."""
+    return await document_service.get_status_history(
+        document_id=document_id,
+        company_id=user.active_company_id,
+        db=db,
+    )
+
+
 @router.get("/{document_id}/links", response_model=List[dict])
 async def get_outgoing_links(
     document_id: int,
@@ -389,7 +436,7 @@ async def get_incoming_links(
 async def create_link(
     document_id: int,
     body: DocumentLinkCreate,
-    user: User = Depends(require_active_company),
+    user: User = Depends(require_editor),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a link from this document to another document.
@@ -413,7 +460,7 @@ async def create_link(
 async def delete_link(
     document_id: int,
     link_id: int,
-    user: User = Depends(require_active_company),
+    user: User = Depends(require_editor),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a link from this document."""
