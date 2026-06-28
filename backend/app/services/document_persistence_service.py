@@ -6,6 +6,8 @@ Used by both document upload and version creation.
 
 import json
 import logging
+from typing import Any
+
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
