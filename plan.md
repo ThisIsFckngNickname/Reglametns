@@ -346,8 +346,14 @@ MVP проверки гипотезы: может ли LLM (Qwen 3.6 36B MoE) г
 ### Backend
 1. **Статусная модель:**
    - Статусы: `draft` → `review` (на рассмотрении) → `approved` (утверждён) → `cancelled` (отменён) / `archived` (архивный)
+   - Полная матрица переходов:
+     - `draft` → `review`, `archived`
+     - `review` → `draft`, `approved`, `archived`
+     - `approved` → `cancelled`, `archived`
+     - `cancelled` → `draft`, `archived`
+     - `archived` → терминальный (только удаление)
+   - Администратор (admin) может перевести документ в любой статус вне зависимости от матрицы
    - Таблица `document_status_history`: id, document_id, status, changed_by, changed_at, comment
-   - Ограничения: из `approved` можно перейти только в `cancelled` или `archived`; из `cancelled` → только новая версия
 
 2. **Multi-holding:**
    - Таблица `Holding`: id, name, inn, legal_form, created_at
@@ -356,8 +362,12 @@ MVP проверки гипотезы: может ли LLM (Qwen 3.6 36B MoE) г
    - API: CRUD для холдингов (только admin)
 
 3. **Права доступа:**
-   - Таблица `User`: id, email, password_hash, role (admin / editor / viewer)
-   - Роли в рамках холдинга: admin (всё), editor (создание, редактирование, изменение статуса), viewer (чтение, скачивание)
+   - Таблица `User`: id, email, password_hash, role (admin / editor / member / viewer)
+   - Роли в рамках холдинга:
+     - `admin` — полный доступ, включая управление пользователями и обход ограничений статусов
+     - `editor` — создание, редактирование, смена статусов (с ограничениями матрицы)
+     - `member` — (legacy) то же, что editor, отображается как «Редактор»
+     - `viewer` — чтение и скачивание, без права изменения
    - JWT-аутентификация
    - Middleware: проверка роли и привязки к холдингу
 
@@ -395,7 +405,10 @@ MVP проверки гипотезы: может ли LLM (Qwen 3.6 36B MoE) г
 ## Out of Scope
 - ❌ Автоматический анализ при утверждении (Фаза 4)
 - ❌ Версионность
-- ❌ Управление пользователями (админка) — позже
+- ✅ Управление пользователями (админка) — реализовано:
+  - Inline смена роли в таблице пользователей
+  - Памятка прав ролей (ROLE_INFO)
+  - Создание, редактирование, блокировка/разблокировка, удаление пользователей
 
 ## Acceptance Criteria
 1. Пользователь может зарегистрироваться и войти
@@ -404,7 +417,9 @@ MVP проверки гипотезы: может ли LLM (Qwen 3.6 36B MoE) г
 4. История смены статусов сохраняется и отображается
 5. Viewer не может изменить статус
 6. Admin может создавать холдинги
-7. Документы изолированы по холдингам (пользователь видит только свои)
+7. Администратор может перевести документ в любой статус (обход матрицы переходов)
+8. Администратор может менять роли пользователей через админ-панель
+9. Документы изолированы по холдингам (пользователь видит только свои)
 
 ## Dependencies
 - Фаза 1 (генерация)
@@ -722,9 +737,14 @@ class LLMClient(ABC):
 
 ### Статусная модель (единая)
 ```
-draft → review → approved → (cancelled | archived)
-  ↑        ↑         ↓
-  └────────┴─────────┘ (новая версия)
+DRAFT     → REVIEW, ARCHIVED
+REVIEW    → DRAFT, APPROVED, ARCHIVED
+APPROVED  → CANCELLED, ARCHIVED
+CANCELLED → DRAFT, ARCHIVED
+ARCHIVED  → (терминальный)
+
+Администратор (admin) может перевести документ в любой статус
+без ограничений матрицы переходов.
 ```
 
 ### Событийная модель
@@ -741,7 +761,7 @@ draft → review → approved → (cancelled | archived)
 ### Безопасность
 - JWT токены (access + refresh)
 - Все эндпоинты проверяют принадлежность к холдингу пользователя
-- Роли: admin, editor, viewer
+- Роли: admin (полный доступ), editor (создание/редактирование/статусы), member (legacy = editor), viewer (только чтение)
 - Доступ к файлам: только через API (прямой доступ к папке запрещён)
 
 ---
@@ -784,8 +804,9 @@ draft → review → approved → (cancelled | archived)
 #### Backend
 - `CANCELLED = "cancelled"` добавлен в `DocumentStatus` enum
 - `POST /api/v1/documents/{id}/status` — смена статуса с валидацией переходов и комментарием
-  - Правила: `draft→review|archived`, `review→draft|approved|archived`, `approved→cancelled|archived`, `cancelled|archived` — терминальные
-  - При невалидном переходе — 400 BadRequest
+   - Правила: `draft→review|archived`, `review→draft|approved|archived`, `approved→cancelled|archived`, `cancelled→draft|archived`, `archived` — терминальный
+   - При невалидном переходе (для не-админа) — 400 BadRequest
+   - Администраторы обходят валидацию переходов (`get_is_admin` dependency, `is_admin` parameter)
 - `GET /api/v1/documents/{id}/history` — история смены статусов (Timeline) с email автора и комментарием
 - `POST /api/v1/auth/change-password` — смена пароля (current + new)
 - **Валидация переходов статусов** — модуль `STATUS_TRANSITIONS` в `document_update_service.py`
@@ -793,6 +814,8 @@ draft → review → approved → (cancelled | archived)
 - **`require_editor` middleware** — доступ к мутирующим эндпоинтам только для admin/editor (8 endpoints переключены)
 - **Роль по умолчанию** при регистрации: `"member"` → `"editor"`
 - **`comment` field** добавлен в `StatusChangeRequest` и передаётся в `DocumentStatusLog.reason`
+- **Валидация роли в admin_set_user_company_role** — только admin/editor/viewer
+- **Admin bypass статусных переходов** — `get_is_admin` в `deps.py`, `is_admin` в сервисах
 
 #### Frontend
 - **Цвета статусов исправлены** по спецификации: draft=серый, review=оранжевый, approved=зелёный, cancelled=красный, archived=серый
@@ -800,7 +823,14 @@ draft → review → approved → (cancelled | archived)
 - **Вкладка «История статусов»** на детальной странице документа (Timeline с цветными точками, комментариями, датами)
 - **Роль пользователя** отображается в Header (Админ/Редактор/Просмотр)
 - **Смена пароля** на странице ProfilePage (текущий + новый + подтверждение)
-- **Статус `cancelled`** исключён из выпадающего списка смены статуса (только через API)
+- **Статус `cancelled`** — доступен в Select при текущем статусе `approved`; для администраторов — всегда
+- **Переход `cancelled → draft`** — разрешён в Select для не-админов
+- **Управление ролями в админке** — inline Select для смены роли в таблице пользователей
+- **Памятка прав ролей** — карточка `ROLE_INFO` над таблицей пользователей
+- **Header: `member` → «Редактор»** — legacy-роль отображается как редактор
+- **Header: тег роли** — отображается роль пользователя (Админ/Редактор/Просмотр)
+- **AdminUsersPage: горизонтальный скролл** — `scroll={{ x: 'max-content' }}`
+- **AdminUsersPage: колонка ролей** — выравнивание по правому краю, фиксированная ширина
 
 #### Infrastructure
 - `require_editor` исправлен: `NoActiveCompany()` вместо `ForbiddenException()` при отсутствии активной компании (fix для теста `test_upload_no_active_company`)
