@@ -288,5 +288,146 @@ class GeneratorService:
         return await text_extractor.extract_draft_text(files)
 
 
+    # ── V2 (B1): New full-context generation method ──────────────────
+
+    async def generate_document(
+        self,
+        topic: str,
+        company_id: int,
+        document_type: str = "regulation",
+        user_id: int | None = None,
+        draft_file_path: str | None = None,
+        influence_document_ids: list[int] | None = None,
+        search_enabled: bool = True,
+        db: AsyncSession | None = None,
+    ) -> DocumentResponse:
+        """Generate a document using all available knowledge sources (V2).
+
+        Pipeline:
+        1. Collect context (6 sources)
+        2. Build prompt (PromptBuilder V2)
+        3. Call LLM
+        4. Parse response
+        5. Build .docx
+        6. Save document
+
+        Args:
+            topic: Document topic (e.g. "Регламент по ГСМ").
+            company_id: Company (holding) ID.
+            document_type: Document type key from DOCUMENT_TYPES.
+            user_id: Creator user ID (optional, for audit).
+            draft_file_path: Path to draft file in storage (optional).
+            influence_document_ids: IDs of influencing documents (optional).
+            search_enabled: Enable web search (default True).
+            db: Database session.
+
+        Returns:
+            DocumentResponse with generated document metadata.
+        """
+        # 1. Load company
+        company = await data_loader.load_company(company_id, db)
+
+        # 2. Load company-wide terms (CompanyTerm)
+        company_terms = await data_loader.load_company_terms_list(company_id, db)
+
+        # 3. Load company-wide abbreviations (CompanyAbbreviation)
+        company_abbreviations = await data_loader.load_company_abbreviations_list(company_id, db)
+
+        # 4. Search ChromaDB for similar documents
+        similar_chunks = []
+        try:
+            from app.services.rag_service import rag_service
+            similar_chunks = await rag_service.search(
+                query=topic,
+                company_id=company_id,
+                top_k=5,
+            )
+            logger.info(f"RAG search returned {len(similar_chunks)} chunks for V2")
+        except Exception as e:
+            logger.warning(f"RAG search failed (V2 will continue without): {e}")
+
+        # 5. Web search
+        web_results_text = None
+        if search_enabled:
+            try:
+                from app.services.web_search_service import web_search_service
+                web_results_text = await web_search_service.enrich_prompt(topic)
+                if web_results_text:
+                    logger.info(f"Web search enrich returned {len(web_results_text)} chars")
+                else:
+                    logger.info("Web search enrich returned no results")
+            except Exception as e:
+                logger.warning(f"Web search failed (V2 will continue without): {e}")
+
+        # 6. Extract draft text
+        draft_text = await data_loader.load_draft_text(draft_file_path)
+
+        # 7. Load influencing documents
+        influencing_docs = await data_loader.load_influencing_documents(
+            influence_document_ids, company_id, db
+        )
+
+        # 8. Log diagnostics
+        logger.info(
+            "V2 Generation diagnostics: "
+            f"topic_len={len(topic)}, "
+            f"terms={len(company_terms)}, "
+            f"abbreviations={len(company_abbreviations)}, "
+            f"rag_chunks={len(similar_chunks)}, "
+            f"web_results={'yes' if web_results_text else 'no'}, "
+            f"draft_chars={len(draft_text)}, "
+            f"influencing_docs={len(influencing_docs)}"
+        )
+
+        # 9. Build V2 prompt
+        messages = prompt_builder.build_messages_v2(
+            company=company,
+            topic=topic,
+            document_type=document_type,
+            company_terms=company_terms,
+            company_abbreviations=company_abbreviations,
+            similar_chunks=similar_chunks,
+            web_results_text=web_results_text,
+            draft_text=draft_text,
+            influencing_docs=influencing_docs,
+        )
+
+        # 10. Call LLM
+        raw_response = await self.llm.chat_completion(messages)
+        logger.info(f"LLM V2 response received: {len(raw_response)} chars")
+
+        # 11. Parse JSON response
+        result = await response_handler.parse_response(raw_response)
+        result["generated_with_mock"] = False
+
+        # 12. Build .docx
+        doc_title = result.get("title", topic)
+        output_path = response_handler.get_output_path(company_id, doc_title)
+        docx_builder.build(result, company, output_path)
+
+        # 13. Load user for save
+        user = None
+        if user_id is not None:
+            from app.models.user import User as UserModel
+            from sqlalchemy import select
+            user_stmt = select(UserModel).where(UserModel.id == user_id)
+            user_result = await db.execute(user_stmt)
+            user = user_result.scalar_one_or_none()
+
+        # 14. Save as Document + DocumentVersion
+        return await document_saver.save_generated_document(
+            company_id=company_id,
+            doc_title=doc_title,
+            description=result.get("description", ""),
+            output_path=output_path,
+            sections_count=len(result.get("sections", [])),
+            terms=result.get("terms", []),
+            abbreviations=result.get("abbreviations", []),
+            user=user,
+            db=db,
+            document_type=document_type,
+        )
+
+
 # Singleton
 generator_service = GeneratorService()

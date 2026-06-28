@@ -365,7 +365,7 @@ class TestStatusChangeTrigger:
     async def test_status_change_triggers_analysis(
         self, test_session: AsyncSession
     ):
-        """Should trigger pattern analysis when status changes to approved."""
+        """Should trigger analysis pipeline when status changes to approved."""
         # Arrange
         company = Company(name="Trigger Company", inn="7701000008", legal_form="ООО")
         test_session.add(company)
@@ -373,6 +373,7 @@ class TestStatusChangeTrigger:
 
         doc = await _create_test_document(test_session, company.id, 1, status=DocumentStatus.REVIEW)
         ver = await _create_test_version(test_session, doc.id)
+        ver.full_text = "Настоящий документ устанавливает правила. Термин — Определение."
         await _create_test_section(
             test_session, ver.id, "Основной раздел", 1, 1,
             "Настоящий документ устанавливает правила."
@@ -381,7 +382,7 @@ class TestStatusChangeTrigger:
 
         service = DocumentService()
 
-        # Act
+        # Act — status change to approved triggers async pipeline
         update = DocumentUpdate(status=DocumentStatus.APPROVED)
         await service.update_document(
             id=doc.id,
@@ -391,15 +392,22 @@ class TestStatusChangeTrigger:
             user_id=None,
         )
 
-        # Assert
+        # Assert — pipeline is triggered asynchronously (runs in background)
         await test_session.refresh(doc)
-        assert doc.was_analyzed is True
+        assert doc.status == DocumentStatus.APPROVED
+        assert doc.analysis_status == "running"
 
-        # Verify company was updated
-        await test_session.refresh(company)
-        assert company.document_structure is not None
-        assert company.style_settings is not None
-        assert company.style_settings.get("documents_analyzed") == 1
+        # Verify DocumentAnalysis record was created
+        from sqlalchemy import select
+        from app.models.document_analysis import DocumentAnalysis
+        stmt = select(DocumentAnalysis).where(
+            DocumentAnalysis.document_id == doc.id
+        ).order_by(DocumentAnalysis.created_at.desc()).limit(1)
+        result = await test_session.execute(stmt)
+        analysis = result.scalar_one_or_none()
+        assert analysis is not None
+        assert analysis.status == "running"
+        assert analysis.file_hash is not None
 
     @pytest.mark.asyncio
     async def test_no_log_on_same_status(

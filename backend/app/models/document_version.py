@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -21,6 +21,10 @@ def _utcnow() -> datetime:
 class DocumentVersion(Base):
     __tablename__ = "document_versions"
 
+    __table_args__ = (
+        UniqueConstraint("document_id", "version_number", name="uq_document_version_number"),
+    )
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     document_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("documents.id", ondelete="CASCADE"), index=True, nullable=False
@@ -30,6 +34,7 @@ class DocumentVersion(Base):
     file_type: Mapped[str] = mapped_column(String(10), nullable=False)  # docx / pdf
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    file_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     version_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     full_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     uploaded_by: Mapped[Optional[int]] = mapped_column(

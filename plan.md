@@ -838,3 +838,179 @@ ARCHIVED  → (терминальный)
 #### Tests
 - 214 passed, 17 skipped, 0 failed
 
+---
+## Phase 4 — Анализ при статусе «Утверждён» (June 28, 2026)
+
+### Delivered
+
+#### Backend
+- **Модель `DocumentAnalysis`** — новая таблица `document_analyses` для отслеживания каждого запуска анализа (id, document_id, version_id, file_hash, status, steps_status JSON, result_summary JSON, error_message, timestamps)
+- **Поля `analysis_hash` и `analysis_status`** добавлены в модель `Document` (SHA256 последнего успешного анализа, статус: none/running/complete/error)
+- **`AnalysisPipelineService`** — единый асинхронный pipeline из 8 шагов:
+  1. extract_text — извлечение текста из последней версии
+  2. parse_structure — подсчёт существующих секций
+  3. extract_terms — извлечение терминов (replace)
+  4. extract_abbr — извлечение сокращений (replace)
+  5. extract_refs — подсчёт ссылок
+  6. pattern_analysis — обновление профиля компании (стиль/структура)
+  7. embedding — чанкование + ChromaDB индексация (replace)
+  8. mark_complete — финализация
+- **Background выполнение** — pipeline запускается через `asyncio.create_task()` с собственной DB-сессией, не блокируя HTTP-ответ
+- **Идемпотентность** — SHA256(full_text) сравнивается с `Document.analysis_hash`; если совпадает — анализ пропускается
+- **Блокировка повторного запуска** — проверка `analysis_status != 'running'` перед стартом
+- **Устойчивость к ошибкам** — каждый шаг обёрнут в try/except; ошибка одного шага не прерывает остальные
+- **Три новых API endpoint'а:**
+  - `GET /api/v1/documents/{id}/analyses` — история анализов документа
+  - `GET /api/v1/analysis/{analysis_id}/status` — детальный статус по шагам
+  - `POST /api/v1/documents/{id}/reanalyze` — принудительный перезапуск (editor+)
+- **Триггер на approved** — `document_update_service.py` заменён на вызов pipeline вместо прямых вызовов `PatternAnalysisService` + `RagService`
+- **Адаптация `PatternAnalysisService`** — добавлен метод `analyze_document_patterns()` без проверки `was_analyzed`
+- **Alembic миграция** — `b39c2faec5e2` (add document analysis table and fields)
+- **Обратная совместимость** — `was_analyzed` сохранён, старый `POST /analyze` endpoint работает
+
+#### Frontend
+- **`AnalysisStatusBadge`** — компактный Tag с иконкой для статуса анализа (none/running/complete/error)
+- **`AnalysisPipelineProgress`** — 8-шаговый Steps с иконками, отображением ошибок и сводкой результатов
+- **Вкладка «Анализ» на DocumentDetailPage** — текущий статус, история анализов (таблица), последний pipeline, кнопка «Перезапустить анализ» (для editor+)
+- **Авто-опрос** — при `running` статусе GET /status каждые 3 секунды до завершения
+- **Обновление реестра документов** — колонка «Анализ» использует `analysis_status` (цвета, иконки, текст)
+- **Типы и API клиент** — `types/analysis.ts`, `api/analysis.ts`
+
+#### Infrastructure
+- Новые файлы: `document_analysis.py`, `analysis_pipeline_service.py`, `analysis.py` (API), `analysis.ts` (FE types), `AnalysisStatusBadge.tsx`, `AnalysisPipelineProgress.tsx`
+- Обновлено: `document.py`, `document_update_service.py`, `pattern_analysis_service.py`, `schemas/document.py`, `router.py`, `DocumentsListPage.tsx`, `DocumentDetailPage.tsx`
+
+#### Tests
+- Новые тесты: `test_analysis_pipeline.py` (18 тестов: trigger, idempotency, pipeline steps, reanalyze, history)
+- **232 passed, 17 skipped, 0 failed**
+
+---
+## Phase 5 — RAG-генерация (B1 + B2 + B3) (June 28, 2026)
+
+### Delivered
+
+#### B1 — RAG Generator V2 + WebSearch + CompanyTerms
+
+##### Backend
+- **Generator V2** — `POST /api/v1/generator/generate-v2` с RAG-промптом из 6 источников (структура, CompanyTerms, ChromaDB, web search, draft, influencing docs)
+- **PromptBuilder V2** — сборка super-prompt: структура документа + глоссарий холдинга + похожие chunks из ChromaDB + результаты веб-поиска + текст черновика + влияющие документы
+- **WebSearchService** — DuckDuckGo + BeautifulSoup (top-3 страницы), graceful degradation при ошибке, обогащение промпта внешними данными
+- **GeneratorService.generate_document_v2()** — полный pipeline с 5 этапами (Подготовка → Поиск → Глоссарий → Генерация → Оформление)
+- **CompanyTerm + CompanyAbbreviation модели** — общехолдинговый глоссарий с unique constraint (company_id + term/abbreviation), CRUD API (8 endpoints с пагинацией/поиском)
+- **Синхронизация при анализе** — pipeline анализа добавляет новые термины в company_terms, если их там нет
+- **Alembic миграция** — `b95db4ad106b` (add company terms and abbreviations)
+
+##### Frontend
+- **GeneratorPage V2** — выбор типа документа, загрузка черновика, influencing docs (multi-select), web search checkbox, 5-step progress
+- **TermsPage** — вкладки Terms/Abbreviations, таблица с поиском, пагинация, CRUD модалки, role-based видимость
+- **Header** — пункт навигации "/terms"
+- **Проверка document_type** — при генерации выбор типа документа (regulation/order/provision/policy/directive)
+
+#### B2 — document_type для всех документов
+
+##### Backend
+- **document_type column** — VARCHAR(50), server_default="regulation" на всех документах
+- **Pydantic схемы** — DocumentCreate/Update/Response/ListItem с document_type, валидация через validator
+- **API фильтр** — `GET /api/v1/documents?type=` для фильтрации по типу
+- **Upload** — `POST /api/v1/documents/upload` принимает `document_type` Form-параметр
+- **Generator** — тип документа передаётся при сохранении документа
+- **Обратная совместимость** — все существующие документы получают `regulation` по умолчанию
+- **Alembic миграция** — `cebcd9fa6c5c` (add document_type to documents)
+
+##### Frontend
+- **Реестр** — фильтр по типу (Select), колонка «Тип» с цветными Tag
+- **Детальная страница** — отображение типа документа
+- **Загрузка** — выбор типа документа на странице upload
+- **Генератор** — тип документа выбирается и передаётся на backend
+
+#### B3 — Приказы и связи
+
+##### Backend
+- **AmendmentItem Pydantic схема** — унифицированный ответ для amendment endpoints
+- **DocumentAmendmentService** — новый сервис с методами get_amendments() / get_amended_documents() через существующую DocumentLink(link_type="amends")
+- **2 API endpoint'а**:
+  - `GET /api/v1/documents/{id}/amendments` — приказы, изменяющие документ
+  - `GET /api/v1/documents/{id}/amended-documents` — документы, изменяемые приказом
+- **Интеграция с существующим DocumentLink CRUD** — связи создаются/удаляются через существующие POST/DELETE endpoints
+
+##### Frontend
+- **Вкладка «Изменения» на DocumentDetailPage** — после «Связей»
+  - Для `document_type=order`: заголовок «Вносит изменения в» + таблица amended-docs
+  - Для остальных типов: заголовок «Изменяется приказами» + таблица amendments
+  - Кнопка «Связать с приказом» для editor+ с модалкой создания связи (link_type="amends")
+
+#### Tests
+- **271 passed, 17 skipped, 0 failed** (B1+B2)
+- **278 passed, 17 skipped, 0 failed** (B3 финальный прогон)
+- **Frontend tsc + build** — 0 errors, успешная сборка
+
+---
+## Phase 6 — Корректировка по замечаниям пользователя (June 28, 2026)
+
+### Delivered
+
+#### Backend
+- **Модель `DocumentRevision`** — таблица `document_revisions` (id, document_id, comment, target_section, old_text, new_text, stats_json, created_by, created_at)
+- **DiffService** — генерация unified diff, HTML diff (difflib.HtmlDiff), статистика (+N/-M) для изменений
+- **RevisionService** — оркестрация ревизии: получение текста документа → формирование revision-промпта → вызов LLM (temperature=0.2) → генерация diff → перезапись файла → логирование ревизии
+- **3 API endpoint'а:**
+  - `POST /api/v1/documents/{id}/revise` — запуск ревизии (тело: `{comment, target_section?}`)
+  - `GET /api/v1/documents/{id}/revisions` — история ревизий
+  - `GET /api/v1/documents/{id}/revisions/{rev_id}` — детали ревизии с old/new text
+- **Проверка неизменности** — если LLM вернула тот же текст, ревизия не создаётся
+- **Валидация** — comment обязателен, min_length=10
+- **Alembic миграция** — `c537913e013b` (add document_revisions table)
+
+#### Frontend
+- **ReviseModal** — модальное окно с TextArea (comment + minLength + showCount) и опциональным полем target_section, loading state, обработка ошибок
+- **DiffView** — отображение HTML diff от backend (difflib) с подсветкой +N/−M статистикой, CSS стили для diff-таблицы
+- **Кнопка «Внести правки»** — на детальной странице (для editor+, not archived), открывает ReviseModal
+- **Вкладка «Ревизии»** — после «Изменений», таблица с колонками Дата/Комментарий/Раздел/Изменения/Кем/Действия, lazy loading, просмотр diff ревизии
+
+#### Tests
+- **22 теста** для revision endpoints + 6 unit-тестов DiffService
+- **300 passed, 17 skipped, 0 failed** (финальный прогон)
+- **Frontend tsc + build** — 0 errors, успешная сборка
+
+---
+## Phase 7 — Версионность документов (June 28, 2026)
+
+### Delivered
+
+#### Backend
+- **Модель `DocumentVersion`** — таблица `document_versions` (id, document_id, version_number, file_path, file_hash, file_size, author_id, comment, created_at) с UniqueConstraint(document_id, version_number)
+- **`file_hash` добавлен в DocumentVersion** — SHA-256 хеш файла версии
+- **Миграция существующих документов** — скрипт `scripts/migrate_versions.py` создаёт v1 для всех документов без версий, копирует файлы в `storage/{company_id}/{doc_id}/v1/`
+- **VersionService** — полный CRUD версий: create (max+1), get, restore (создаёт новую версию из контента выбранной), download, compare (diff между двумя версиями)
+- **StorageService** — 3 новых метода: save_version_file(), get_version_file_content(), get_text_by_path()
+- **Привязка анализа к версии** — DocumentAnalysis.document_version_id (FK), проставляется при запуске pipeline
+- **5 API endpoint'ов:**
+  - `GET /api/v1/documents/{id}/versions` — список версий
+  - `GET /api/v1/documents/{id}/versions/{v}/download` — скачать версию
+  - `POST /api/v1/documents/{id}/versions` — загрузить новую версию (multipart)
+  - `POST /api/v1/documents/{id}/versions/{v}/restore` — восстановить версию
+  - `GET /api/v1/documents/{id}/versions/{v1}/diff/{v2}` — сравнить две версии
+  - `GET /api/v1/documents/{id}/analyses?version={v}` — фильтр анализов по версии
+- **Интеграция с существующими сервисами** — upload, генерация, ревизия и обновление документа теперь создают версии
+
+#### Frontend
+- **Вкладка «Версии» на DocumentDetailPage** — полная переработка:
+  - Таблица: Версия (v1, v2...), Дата, Размер, Комментарий, Действия
+  - Чекбоксы для выбора двух версий для сравнения
+  - Кнопка «Сравнить» → открывает DiffView с diff'ом версий
+  - Кнопка «Загрузить новую версию» → модалка с Drag-and-Drop
+  - Кнопка «Восстановить» (editor+) → подтверждение → создание новой версии
+  - Текущая версия помечена Tag "Текущая"
+- **VersionUploadModal** — модальное окно загрузки новой версии (Dragger + комментарий)
+- **DiffView переиспользован** из Phase 6 для сравнения версий
+
+#### Infrastructure
+- **Alembic миграция** — `7781893645ae` (add file_hash + unique constraint to document_versions)
+- **Скрипт миграции данных** — `scripts/migrate_versions.py` (создаёт v1 для существующих документов)
+- **Обратная совместимость** — StorageService поддерживает оба формата путей (старый и `v{version}/`)
+
+#### Tests
+- **10 тестов** для version endpoints (list, create, download, restore, compare, permissions)
+- **307 passed, 17 skipped, 0 failed** (финальный прогон)
+- **Frontend tsc + build** — 0 errors, успешная сборка
+

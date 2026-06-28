@@ -141,6 +141,7 @@ export interface DocumentListItem {
   title: string
   description?: string | null
   status: DocumentStatus
+  document_type: string
   file_type?: string | null
   file_size?: number | null
   version_number?: number | null
@@ -148,6 +149,8 @@ export interface DocumentListItem {
   has_terms?: boolean
   has_abbreviations?: boolean
   was_analyzed?: boolean
+  analysis_hash?: string | null
+  analysis_status?: 'none' | 'running' | 'complete' | 'error'
   created_by?: { id: number; email: string } | null
   created_at: string
   updated_at: string
@@ -158,10 +161,13 @@ export interface DocumentDetail {
   title: string
   description: string | null
   status: DocumentStatus
+  document_type: string
   company_id: number
   created_by: { id: number; email: string }
   current_version: DocumentVersionBrief | null
   was_analyzed?: boolean
+  analysis_hash?: string | null
+  analysis_status?: 'none' | 'running' | 'complete' | 'error'
   stats: {
     sections_count: number
     tables_count: number
@@ -236,6 +242,7 @@ export interface UploadResponse {
   id: number
   title: string
   status: DocumentStatus
+  document_type?: string
   file_type: string
   file_size: number
   sections_count: number
@@ -265,7 +272,7 @@ export interface GenerateResponse {
 }
 
 export interface GeneratorState {
-  step: 'form' | 'preparing' | 'generating' | 'formatting' | 'done' | 'error'
+  step: 'form' | 'preparing' | 'searching' | 'analyzing' | 'generating' | 'formatting' | 'done' | 'error'
   progress: number  // 0-100
   message: string
   result: GenerateResponse | null
@@ -311,6 +318,17 @@ export interface DocumentLink {
   source_status?: string
 }
 
+// ---- Amendment types ----
+
+export interface AmendmentItem {
+  document_id: number;
+  link_id: number;
+  title: string;
+  document_type: string;
+  status: string;
+  created_at: string;
+}
+
 // ---- Legislation types ----
 
 export interface LegislationItem {
@@ -320,5 +338,90 @@ export interface LegislationItem {
   source: string
   url: string
   snippet: string
+}
+
+// ---- Revision types (Phase 6) ----
+
+export interface ReviseRequest {
+  comment: string;
+  target_section?: string;
+}
+
+export interface ReviseResponse {
+  document_id: number;
+  document_title: string;
+  old_text: string;
+  new_text: string;
+  diff: DiffResult;
+  revision_id: number;
+}
+
+export interface DiffResult {
+  unified_diff: string;
+  html_diff: string;
+  stats: DiffStats;
+}
+
+export interface DiffStats {
+  added: number;
+  removed: number;
+  changed: number;
+}
+
+export interface RevisionHistoryItem {
+  id: number;
+  document_id: number;
+  comment: string;
+  target_section?: string;
+  stats?: DiffStats;
+  created_by_email?: string;
+  created_at: string;
+}
+
+export interface RevisionDetail {
+  id: number;
+  document_id: number;
+  comment: string;
+  target_section?: string;
+  old_text: string;
+  new_text: string;
+  stats?: DiffStats;
+  created_by_email?: string;
+  created_at: string;
+}
+
+// ---- Version types (Phase 7) ----
+
+export interface VersionItem {
+  id: number;
+  version_number: number;
+  file_hash?: string;
+  file_size?: number;
+  author_id?: number;
+  comment?: string;
+  created_at: string;
+}
+
+export interface VersionCreateResponse {
+  id: number;
+  version_number: number;
+  file_hash: string;
+  file_size: number;
+  comment?: string;
+  created_at: string;
+}
+
+export interface VersionRestoreResponse {
+  id: number;
+  version_number: number;
+  comment: string;
+  created_at: string;
+  restored_from: number;
+}
+
+export interface VersionDiffResponse {
+  from_version: number;
+  to_version: number;
+  diff: DiffResult;
 }
 

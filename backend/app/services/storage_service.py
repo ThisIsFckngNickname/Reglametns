@@ -86,6 +86,89 @@ class LocalFileStorage:
         _, ext = os.path.splitext(filename)
         return ext.lower()
 
+    # ── Phase 7: Version storage helpers ──────────────────────────────
+
+    async def save_version_file(
+        self,
+        document,
+        version_number: int,
+        file_content: bytes,
+        filename: str,
+    ) -> str:
+        """Save a version file to storage/{company_id}/{document_id}/v{version}/{filename}.
+
+        Returns the relative path stored in the database.
+        """
+        company_dir = str(document.company_id)
+        doc_dir = str(document.id)
+        version_dir = f"v{version_number}"
+
+        relative_dir = os.path.join(company_dir, doc_dir, version_dir)
+        relative_path = os.path.join(relative_dir, filename)
+        relative_path = relative_path.replace("\\", "/")
+
+        await get_storage().save(relative_path, file_content)
+
+        return relative_path
+
+    async def get_version_file_content(self, version) -> Optional[bytes]:
+        """Get the file content for a version record.
+
+        Tries the stored file_path first, then falls back to
+        constructing the path from document metadata.
+        """
+        storage = get_storage()
+
+        # Try the stored file_path
+        if version.file_path:
+            try:
+                return await storage.read(version.file_path)
+            except FileNotFoundError:
+                pass
+
+        # Fallback: try constructing path from document
+        doc = getattr(version, 'document', None)
+        if doc and hasattr(doc, 'company_id') and hasattr(doc, 'id'):
+            filename = os.path.basename(version.file_path or "document.docx")
+            fallback_path = os.path.join(
+                str(doc.company_id),
+                str(doc.id),
+                f"v{version.version_number}",
+                filename,
+            ).replace("\\", "/")
+            try:
+                return await storage.read(fallback_path)
+            except FileNotFoundError:
+                pass
+
+        return None
+
+    async def get_text_by_path(self, file_path: str) -> Optional[str]:
+        """Extract text from a file at the given path.
+
+        Supports .docx and .pdf files. Returns None if file not found
+        or format not supported.
+        """
+        storage = get_storage()
+
+        try:
+            file_content = await storage.read(file_path)
+        except FileNotFoundError:
+            return None
+
+        if file_path.endswith(".docx"):
+            from io import BytesIO
+            from docx import Document as DocxDocument
+            doc = DocxDocument(BytesIO(file_content))
+            return "\n".join([p.text for p in doc.paragraphs])
+        elif file_path.endswith(".pdf"):
+            import pdfplumber
+            from io import BytesIO
+            with pdfplumber.open(BytesIO(file_content)) as pdf:
+                return "\n".join([page.extract_text() or "" for page in pdf.pages])
+
+        return None
+
 
 # Singleton instance (kept for backward compatibility)
 storage = LocalFileStorage()

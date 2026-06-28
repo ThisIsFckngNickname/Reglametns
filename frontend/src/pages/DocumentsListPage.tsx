@@ -22,9 +22,14 @@ import {
   DownloadOutlined,
   DeleteOutlined,
   CheckCircleOutlined,
+  CloseCircleOutlined,
+  MinusCircleOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { DocumentListItem, DocumentStatus } from '../types'
+import type { DocumentType } from '../types/companyTerms'
+import { DOCUMENT_TYPE_LABELS } from '../types/companyTerms'
 import { useDocumentStore } from '../store/documentStore'
 import { useAuthStore } from '../store/authStore'
 import { downloadDocumentVersion, deleteDocument, analyzeDocument } from '../api/documents'
@@ -118,6 +123,9 @@ export default function DocumentsListPage() {
   const [searchText, setSearchText] = useState<string>(
     searchParams.get('search') || ''
   )
+  const [typeFilter, setTypeFilter] = useState<string>(
+    searchParams.get('type') || ''
+  )
 
   const { user } = useAuthStore()
   const isAdmin = user?.companies?.some((h) => h.role === 'admin') ?? false
@@ -126,7 +134,8 @@ export default function DocumentsListPage() {
 
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     id: 70,
-    title: 350,
+    title: 300,
+    document_type: 130,
     status: 150,
     file_type: 80,
     file_size: 100,
@@ -141,7 +150,7 @@ export default function DocumentsListPage() {
   }, [])
 
   const loadDocuments = useCallback(
-    (params?: { status?: string; search?: string; page?: number }) => {
+    (params?: { status?: string; search?: string; type?: string; page?: number }) => {
       fetchDocuments(params)
     },
     [fetchDocuments]
@@ -151,6 +160,7 @@ export default function DocumentsListPage() {
     loadDocuments({
       status: statusFilter !== 'all' ? statusFilter : undefined,
       search: searchText || undefined,
+      type: typeFilter || undefined,
       page: 1,
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -160,10 +170,27 @@ export default function DocumentsListPage() {
     const params: Record<string, string> = {}
     if (value !== 'all') params.status = value
     if (searchText) params.search = searchText
+    if (typeFilter) params.type = typeFilter
     setSearchParams(params)
     loadDocuments({
       status: value !== 'all' ? value : undefined,
       search: searchText || undefined,
+      type: typeFilter || undefined,
+      page: 1,
+    })
+  }
+
+  const handleTypeChange = (value: string) => {
+    setTypeFilter(value)
+    const params: Record<string, string> = {}
+    if (statusFilter !== 'all') params.status = statusFilter
+    if (searchText) params.search = searchText
+    if (value) params.type = value
+    setSearchParams(params)
+    loadDocuments({
+      status: statusFilter !== 'all' ? statusFilter : undefined,
+      search: searchText || undefined,
+      type: value || undefined,
       page: 1,
     })
   }
@@ -173,10 +200,12 @@ export default function DocumentsListPage() {
     const params: Record<string, string> = {}
     if (statusFilter !== 'all') params.status = statusFilter
     if (value) params.search = value
+    if (typeFilter) params.type = typeFilter
     setSearchParams(params)
     loadDocuments({
       status: statusFilter !== 'all' ? statusFilter : undefined,
       search: value || undefined,
+      type: typeFilter || undefined,
       page: 1,
     })
   }
@@ -185,6 +214,7 @@ export default function DocumentsListPage() {
     loadDocuments({
       status: statusFilter !== 'all' ? statusFilter : undefined,
       search: searchText || undefined,
+      type: typeFilter || undefined,
       page: pagination.current,
     })
   }
@@ -217,6 +247,27 @@ export default function DocumentsListPage() {
           <span>{text}</span>
         </Space>
       ),
+    },
+    {
+      title: 'Тип',
+      dataIndex: 'document_type',
+      key: 'document_type',
+      width: columnWidths.document_type,
+      onHeaderCell: () => ({
+        width: columnWidths.document_type,
+        onResize: (w: number) => updateColumnWidth('document_type', w),
+      }),
+      render: (type: string) => {
+        const label = DOCUMENT_TYPE_LABELS[type as DocumentType] || type
+        const colorMap: Record<string, string> = {
+          regulation: 'blue',
+          order: 'orange',
+          provision: 'purple',
+          policy: 'green',
+          directive: 'cyan',
+        }
+        return <Tag color={colorMap[type] || 'default'}>{label}</Tag>
+      },
     },
     {
       title: 'Статус',
@@ -292,26 +343,62 @@ export default function DocumentsListPage() {
     {
       title: 'Анализ',
       key: 'analysis',
-      width: 110,
+      width: 140,
       align: 'center',
       render: (_: any, record: DocumentListItem) => {
         const isAnalyzing = analyzingIds.has(record.id)
+        const analysisStatus = record.analysis_status || 'none'
+
+        // Show spinner if currently being analyzed (either via status or local state)
+        if (isAnalyzing || analysisStatus === 'running') {
+          return (
+            <Space>
+              <LoadingOutlined spin style={{ color: '#1677ff' }} />
+              <Text type="secondary">Анализ…</Text>
+            </Space>
+          )
+        }
+
+        if (analysisStatus === 'complete') {
+          return (
+            <Tag color="success" icon={<CheckCircleOutlined />}>
+              Готово
+            </Tag>
+          )
+        }
+
+        if (analysisStatus === 'error') {
+          return (
+            <Space>
+              <Tag color="error" icon={<CloseCircleOutlined />}>
+                Ошибка
+              </Tag>
+              <Button
+                size="small"
+                type="primary"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleAnalyzeSingle(record.id)
+                }}
+              >
+                Анализ
+              </Button>
+            </Space>
+          )
+        }
+
+        // none
         return (
-          <Tooltip title={record.was_analyzed ? 'Повторный анализ' : 'Запустить анализ'}>
-            <Button
-              type={record.was_analyzed ? 'default' : 'primary'}
-              size="small"
-              loading={isAnalyzing}
-              icon={record.was_analyzed ? <CheckCircleOutlined /> : undefined}
-              onClick={(e) => {
-                e.stopPropagation()
-                handleAnalyzeSingle(record.id)
-              }}
-              style={{ minWidth: 90 }}
-            >
-              {isAnalyzing ? '' : record.was_analyzed ? 'Готово' : 'Анализ'}
-            </Button>
-          </Tooltip>
+          <Button
+            type="primary"
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleAnalyzeSingle(record.id)
+            }}
+          >
+            Анализ
+          </Button>
         )
       },
     },
@@ -476,6 +563,21 @@ export default function DocumentsListPage() {
             options={STATUS_OPTIONS}
             style={{ width: 180 }}
             aria-label="Фильтр по статусу"
+          />
+          <Select
+            allowClear
+            placeholder="Все типы"
+            style={{ width: 180 }}
+            value={typeFilter || undefined}
+            onChange={handleTypeChange}
+            options={[
+              { value: 'regulation', label: 'Регламент' },
+              { value: 'order', label: 'Приказ' },
+              { value: 'provision', label: 'Положение' },
+              { value: 'policy', label: 'Политика' },
+              { value: 'directive', label: 'Распоряжение' },
+            ]}
+            aria-label="Фильтр по типу документа"
           />
           <Input.Search
             placeholder="Поиск по названию..."

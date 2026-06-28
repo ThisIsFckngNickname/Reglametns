@@ -48,6 +48,18 @@ class DocumentLinkSourceResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AmendmentItem(BaseModel):
+    """Document linked via 'amends' relationship."""
+    document_id: int
+    link_id: int
+    title: str
+    document_type: str
+    status: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class AnalysisResponse(BaseModel):
     """Response from a document analysis trigger."""
     document_id: int

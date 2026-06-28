@@ -15,6 +15,8 @@ from app.models import (  # noqa: F401
     UserCompany,
     VerificationCode,
     Document,
+    DocumentAnalysis,
+    DocumentRevision,
     DocumentVersion,
     DocumentSection,
     DocumentTable,
@@ -22,6 +24,8 @@ from app.models import (  # noqa: F401
     DocumentAbbreviation,
     DocumentLink,
     DocumentStatusLog,
+    CompanyTerm,
+    CompanyAbbreviation,
 )
 
 # Alembic Config object
@@ -53,7 +57,13 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection):
     """Helper to run migrations with a sync connection."""
-    context.configure(connection=connection, target_metadata=target_metadata)
+    # Use batch mode for SQLite (supports ALTER TABLE)
+    is_sqlite = "sqlite" in settings.database_url
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        render_as_batch=is_sqlite,
+    )
     with context.begin_transaction():
         context.run_migrations()
 

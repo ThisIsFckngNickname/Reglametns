@@ -33,12 +33,15 @@ class DocumentReadService:
         page: int,
         page_size: int,
         db: AsyncSession,
+        document_type: Optional[str] = None,
     ) -> PaginatedResponse[DocumentListItem]:
         """List documents with pagination and optional filtering."""
         base_query = select(Document).where(Document.company_id == company_id)
 
         if status:
             base_query = base_query.where(Document.status == status)
+        if document_type:
+            base_query = base_query.where(Document.document_type == document_type)
 
         # NOTE: We do NOT apply search via SQL ilike() because SQLite's
         # LOWER() doesn't handle Cyrillic/Unicode. Instead we fetch the
@@ -115,6 +118,7 @@ class DocumentReadService:
                 id=doc.id,
                 title=doc.title,
                 description=doc.description,
+                document_type=doc.document_type,
                 status=doc.status,
                 was_analyzed=doc.was_analyzed,
                 created_at=doc.created_at,
@@ -189,6 +193,7 @@ class DocumentReadService:
             company_id=doc.company_id,
             title=doc.title,
             description=doc.description,
+            document_type=doc.document_type,
             status=doc.status,
             created_by=creator_info,
             current_version=current_version_brief,
@@ -226,6 +231,10 @@ class DocumentReadService:
         ver_result = await db.execute(ver_stmt)
         versions = ver_result.scalars().all()
 
+        current_version_number = max(
+            (v.version_number for v in versions), default=None
+        )
+
         return [
             {
                 "id": v.id,
@@ -233,10 +242,12 @@ class DocumentReadService:
                 "version_number": v.version_number,
                 "file_type": v.file_type,
                 "file_size": v.file_size,
+                "file_hash": v.file_hash,
                 "mime_type": v.mime_type,
                 "version_notes": v.version_notes,
                 "uploaded_by": v.uploaded_by,
                 "created_at": v.created_at,
+                "is_current": v.version_number == current_version_number,
             }
             for v in versions
         ]

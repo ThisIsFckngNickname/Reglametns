@@ -227,6 +227,35 @@ class RagService:
             logger.error(f"Failed to delete chunks for document {document_id}: {e}")
             return False
 
+    async def get_document_chunks_count(
+        self,
+        document_id: int,
+        company_id: int,
+    ) -> int:
+        """Count chunks stored in ChromaDB for a specific document.
+
+        Args:
+            document_id: ID of the document.
+            company_id: ID of the company.
+
+        Returns:
+            Number of chunks found, or 0 if none or error.
+        """
+        try:
+            collection = self._get_collection(company_id)
+            all_data = collection.get()
+            if not all_data or not all_data.get("ids"):
+                return 0
+
+            doc_chunks = [
+                id for id in all_data["ids"]
+                if id.startswith(f"doc_{document_id}_")
+            ]
+            return len(doc_chunks)
+        except Exception as e:
+            logger.warning(f"Failed to count chunks for document {document_id}: {e}")
+            return 0
+
 
 # Singleton
 rag_service = RagService()

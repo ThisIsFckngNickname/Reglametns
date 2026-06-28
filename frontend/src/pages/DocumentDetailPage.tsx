@@ -18,10 +18,11 @@ import {
   Empty,
   List,
   Modal,
-  Upload,
   Input,
   message,
   Timeline,
+  Checkbox,
+  Tooltip,
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -30,11 +31,14 @@ import {
   FileTextOutlined,
   FolderOutlined,
   PlusOutlined,
-  InboxOutlined,
+  ReloadOutlined,
+  EditOutlined,
+  UploadOutlined,
+  RestOutlined,
+  DiffOutlined,
 } from '@ant-design/icons'
 import type { DataNode } from 'antd/es/tree'
 import type { ColumnsType } from 'antd/es/table'
-import type { UploadFile } from 'antd/es/upload'
 import type {
   DocumentDetail,
   DocumentSection,
@@ -45,7 +49,14 @@ import type {
   DocumentStatus,
   DocumentListItem,
   DocumentLink,
+  VersionItem,
 } from '../types'
+import type {
+  AnalysisStepStatus,
+  AnalysisStatusResponse,
+  AnalysisHistoryItem,
+  AnalysisStatus,
+} from '../types/analysis'
 import { useDocumentStore } from '../store/documentStore'
 import { useAuthStore } from '../store/authStore'
 import {
@@ -57,6 +68,7 @@ import {
   getDocumentVersions,
   getDownloadUrl,
   downloadDocumentVersion,
+  downloadVersion,
   deleteDocument,
   analyzeDocument,
   getDocumentLinks,
@@ -64,15 +76,30 @@ import {
   createDocumentLink,
   deleteDocumentLink,
   getDocumentHistory,
+  getDocumentAmendments,
+  getDocumentAmendedDocuments,
+  restoreVersion,
+  compareVersions,
 } from '../api/documents'
 import type { StatusHistoryItem } from '../api/documents'
-import { createDocumentVersion } from '../api/versions'
+import type { AmendmentItem, ReviseResponse, RevisionHistoryItem, RevisionDetail, DiffResult } from '../types'
+import {
+  getAnalysisHistory,
+  getAnalysisStatus,
+  reanalyzeDocument,
+} from '../api/analysis'
+import VersionUploadModal from '../components/VersionUploadModal'
+import { reviseDocument, getDocumentRevisions, getDocumentRevisionDetail } from '../api/documents'
+import AnalysisStatusBadge from '../components/AnalysisStatusBadge'
+import AnalysisPipelineProgress from '../components/AnalysisPipelineProgress'
+import ReviseModal from '../components/ReviseModal'
+import DiffView from '../components/DiffView'
+import type { DocumentType } from '../types/companyTerms'
+import { DOCUMENT_TYPE_LABELS } from '../types/companyTerms'
 import { STATUS_LABELS, STATUS_COLORS, formatFileSize } from '../utils/statusHelpers'
 import dayjs from 'dayjs'
 
 const { Title, Text, Paragraph } = Typography
-const { TextArea } = Input
-const { Dragger } = Upload
 
 // Convert sections tree to Ant Design Tree nodes
 function sectionsToTreeNodes(sections: DocumentSection[]): DataNode[] {
@@ -128,7 +155,7 @@ export default function DocumentDetailPage() {
   const [tables, setTables] = useState<DocumentTable[]>([])
   const [tablesLoading, setTablesLoading] = useState(false)
 
-  const [versions, setVersions] = useState<DocumentVersion[]>([])
+  const [versions, setVersions] = useState<VersionItem[]>([])
   const [versionsLoading, setVersionsLoading] = useState(false)
 
   const [statusUpdating, setStatusUpdating] = useState(false)
@@ -139,6 +166,10 @@ export default function DocumentDetailPage() {
   const [links, setLinks] = useState<DocumentLink[]>([])
   const [incomingLinks, setIncomingLinks] = useState<DocumentLink[]>([])
   const [linksLoading, setLinksLoading] = useState(false)
+
+  const [amendments, setAmendments] = useState<AmendmentItem[]>([])
+  const [amendedDocuments, setAmendedDocuments] = useState<AmendmentItem[]>([])
+  const [amendmentsLoading, setAmendmentsLoading] = useState(false)
 
   const [statusHistory, setStatusHistory] = useState<StatusHistoryItem[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -153,14 +184,35 @@ export default function DocumentDetailPage() {
   const [linkSearchLoading, setLinkSearchLoading] = useState(false)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
 
+  // Analysis state
+  const [analysisHistory, setAnalysisHistory] = useState<AnalysisHistoryItem[]>([])
+  const [analysisHistoryLoading, setAnalysisHistoryLoading] = useState(false)
+  const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisStatusResponse | null>(null)
+  const [selectedAnalysisLoading, setSelectedAnalysisLoading] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState(false)
+  const pollTimerRef = useRef<ReturnType<typeof setInterval>>()
+
+  // ---- Revision state ----
+  const [reviseModalVisible, setReviseModalVisible] = useState(false)
+  const [diffResult, setDiffResult] = useState<ReviseResponse | null>(null)
+  const [diffVisible, setDiffVisible] = useState(false)
+  const [revisions, setRevisions] = useState<RevisionHistoryItem[]>([])
+  const [revisionsLoading, setRevisionsLoading] = useState(false)
+  const [revisionDetailModalVisible, setRevisionDetailModalVisible] = useState(false)
+  const [revisionDetail, setRevisionDetail] = useState<RevisionDetail | null>(null)
+  const [revisionDetailLoading, setRevisionDetailLoading] = useState(false)
+
   const { user } = useAuthStore()
   const isAdmin = user?.companies?.some((h) => h.role === 'admin') ?? false
+  const canEdit = user?.companies?.some((h) => h.role === 'admin' || h.role === 'editor') ?? false
+  const canAnalyze = user?.companies?.some((h) => h.role === 'admin' || h.role === 'editor') ?? false
 
-  // ---- Version creation ----
-  const [versionModalOpen, setVersionModalOpen] = useState(false)
-  const [versionFileList, setVersionFileList] = useState<UploadFile[]>([])
-  const [versionNotes, setVersionNotes] = useState('')
-  const [versionCreating, setVersionCreating] = useState(false)
+  // ---- Version diff / compare state ----
+  const [selectedVersions, setSelectedVersions] = useState<number[]>([])
+  const [versionDiffResult, setVersionDiffResult] = useState<DiffResult | null>(null)
+  const [versionDiffVisible, setVersionDiffVisible] = useState(false)
+  const [versionDiffLoading, setVersionDiffLoading] = useState(false)
+  const [uploadModalVisible, setUploadModalVisible] = useState(false)
 
   // Load document
   useEffect(() => {
@@ -241,7 +293,7 @@ export default function DocumentDetailPage() {
     setVersionsLoading(true)
     try {
       const data = await getDocumentVersions(documentId)
-      setVersions(data.items)
+      setVersions(data)
     } catch {
       // Silently fail
     } finally {
@@ -267,6 +319,29 @@ export default function DocumentDetailPage() {
     }
   }, [documentId])
 
+  // Load amendments
+  const loadAmendments = useCallback(async () => {
+    if (!documentId) return
+    setAmendmentsLoading(true)
+    try {
+      const doc = currentDocument
+      if (!doc) return
+      if (doc.document_type === 'order') {
+        const data = await getDocumentAmendedDocuments(documentId)
+        setAmendedDocuments(data)
+        setAmendments([])
+      } else {
+        const data = await getDocumentAmendments(documentId)
+        setAmendments(data)
+        setAmendedDocuments([])
+      }
+    } catch {
+      // Silent fail
+    } finally {
+      setAmendmentsLoading(false)
+    }
+  }, [documentId, currentDocument])
+
   const loadHistory = useCallback(async () => {
     if (!documentId) return
     setHistoryLoading(true)
@@ -279,6 +354,121 @@ export default function DocumentDetailPage() {
       setHistoryLoading(false)
     }
   }, [documentId])
+
+  // Load revisions
+  const loadRevisions = useCallback(async () => {
+    if (!documentId) return
+    setRevisionsLoading(true)
+    try {
+      const data = await getDocumentRevisions(documentId)
+      setRevisions(data)
+    } catch {
+      // Silent fail
+    } finally {
+      setRevisionsLoading(false)
+    }
+  }, [documentId])
+
+  const handleViewRevisionDiff = useCallback(async (revisionId: number) => {
+    if (!documentId) return
+    setRevisionDetailLoading(true)
+    setRevisionDetailModalVisible(true)
+    try {
+      const detail = await getDocumentRevisionDetail(documentId, revisionId)
+      setRevisionDetail(detail)
+    } catch {
+      setRevisionDetail(null)
+    } finally {
+      setRevisionDetailLoading(false)
+    }
+  }, [documentId])
+
+  // Load analysis history
+  const loadAnalysisHistory = useCallback(async () => {
+    if (!documentId) return
+    setAnalysisHistoryLoading(true)
+    try {
+      const response = await getAnalysisHistory(documentId)
+      const data = Array.isArray(response.data) ? response.data : []
+      setAnalysisHistory(data)
+    } catch {
+      // Silently fail
+    } finally {
+      setAnalysisHistoryLoading(false)
+    }
+  }, [documentId])
+
+  // Load detailed analysis status
+  const loadAnalysisDetail = useCallback(async (analysisId: number) => {
+    setSelectedAnalysisLoading(true)
+    try {
+      const response = await getAnalysisStatus(analysisId)
+      setSelectedAnalysis(response.data)
+    } catch {
+      // Silently fail
+    } finally {
+      setSelectedAnalysisLoading(false)
+    }
+  }, [])
+
+  // Poll for running analysis
+  const startPolling = useCallback((analysisId: number) => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current)
+    }
+    pollTimerRef.current = setInterval(async () => {
+      try {
+        const response = await getAnalysisStatus(analysisId)
+        const data: AnalysisStatusResponse = response.data
+        setSelectedAnalysis(data)
+        // If analysis is no longer running, stop polling and refresh doc
+        if (data.status === 'complete' || data.status === 'error') {
+          if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current)
+            pollTimerRef.current = undefined
+          }
+          fetchDocument(documentId)
+          loadAnalysisHistory()
+        }
+      } catch {
+        // Stop polling on error
+        if (pollTimerRef.current) {
+          clearInterval(pollTimerRef.current)
+          pollTimerRef.current = undefined
+        }
+      }
+    }, 3000)
+  }, [documentId, fetchDocument, loadAnalysisHistory])
+
+  // Load analysis history on mount if document has analysis data
+  useEffect(() => {
+    if (!currentDocument) return
+    if (currentDocument.analysis_status && currentDocument.analysis_status !== 'none') {
+      loadAnalysisHistory()
+    }
+  }, [currentDocument?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-start polling when analysis is running
+  useEffect(() => {
+    if (!currentDocument) return
+
+    if (currentDocument.analysis_status === 'running') {
+      // Find the running analysis in history
+      const runningAnalysis = analysisHistory.find((a) => a.status === 'running')
+      if (runningAnalysis) {
+        loadAnalysisDetail(runningAnalysis.id)
+        startPolling(runningAnalysis.id)
+      }
+    }
+
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current)
+        pollTimerRef.current = undefined
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentDocument?.analysis_status, analysisHistory.length])
 
   const handleLinkSearch = useCallback((value: string) => {
     setLinkSearchText(value)
@@ -323,8 +513,17 @@ export default function DocumentDetailPage() {
       case 'links':
         if (links.length === 0 && incomingLinks.length === 0) loadLinks()
         break
+      case 'amendments':
+        if (amendments.length === 0 && amendedDocuments.length === 0) loadAmendments()
+        break
       case 'history':
         if (statusHistory.length === 0) loadHistory()
+        break
+      case 'analysis':
+        if (analysisHistory.length === 0) loadAnalysisHistory()
+        break
+      case 'revisions':
+        if (revisions.length === 0) loadRevisions()
         break
     }
   }
@@ -380,6 +579,14 @@ export default function DocumentDetailPage() {
     }
   }, [currentDocument])
 
+  const handleDownloadByVersion = useCallback(async (versionNumber: number) => {
+    try {
+      await downloadVersion(documentId, versionNumber)
+    } catch {
+      message.error('Не удалось скачать версию')
+    }
+  }, [documentId])
+
   const handleAnalyze = async () => {
     if (!currentDocument) return
     setAnalyzing(true)
@@ -395,6 +602,29 @@ export default function DocumentDetailPage() {
       message.error(msg)
     } finally {
       setAnalyzing(false)
+    }
+  }
+
+  const handleReanalyze = async () => {
+    if (!currentDocument) return
+    setReanalyzing(true)
+    try {
+      const response = await reanalyzeDocument(currentDocument.id)
+      const result = response.data
+      message.success(result.message || 'Анализ запущен')
+      // Refresh document and analysis history
+      fetchDocument(documentId)
+      await loadAnalysisHistory()
+      // Select the new analysis for progress display
+      if (result.analysis_id) {
+        loadAnalysisDetail(result.analysis_id)
+        startPolling(result.analysis_id)
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail?.message || err?.message || 'Ошибка запуска анализа'
+      message.error(msg)
+    } finally {
+      setReanalyzing(false)
     }
   }
 
@@ -445,40 +675,36 @@ export default function DocumentDetailPage() {
     setSelectedSection(section || null)
   }
 
-  // ---- Version creation handlers ----
-  const handleOpenVersionModal = () => {
-    setVersionFileList([])
-    setVersionNotes('')
-    setVersionModalOpen(true)
+  // ---- Version handlers (Phase 7) ----
+  const handleRestore = async (versionNumber: number) => {
+    Modal.confirm({
+      title: 'Восстановить версию',
+      content: `Будет создана новая версия с содержимым v${versionNumber}. Продолжить?`,
+      onOk: async () => {
+        try {
+          await restoreVersion(documentId, versionNumber)
+          message.success(`Версия v${versionNumber} восстановлена`)
+          loadVersions()
+          fetchDocument(documentId)
+        } catch (err: any) {
+          message.error(err?.response?.data?.detail || 'Ошибка восстановления')
+        }
+      },
+    })
   }
 
-  const handleCreateVersion = async () => {
-    if (versionFileList.length === 0) {
-      message.error('Выберите файл для новой версии')
-      return
-    }
-    const file = versionFileList[0].originFileObj
-    if (!file) {
-      message.error('Файл не найден')
-      return
-    }
-
-    setVersionCreating(true)
+  const handleCompare = async () => {
+    if (selectedVersions.length !== 2) return
+    const [v1, v2] = [...selectedVersions].sort((a, b) => a - b)
+    setVersionDiffLoading(true)
     try {
-      await createDocumentVersion(
-        documentId,
-        file,
-        versionNotes || undefined
-      )
-      message.success('Новая версия создана')
-      setVersionModalOpen(false)
-      // Reload versions and document
-      loadVersions()
-      fetchDocument(documentId)
-    } catch {
-      message.error('Ошибка при создании версии')
+      const response = await compareVersions(documentId, v1, v2)
+      setVersionDiffResult(response.diff)
+      setVersionDiffVisible(true)
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Ошибка сравнения версий')
     } finally {
-      setVersionCreating(false)
+      setVersionDiffLoading(false)
     }
   }
 
@@ -551,61 +777,89 @@ export default function DocumentDetailPage() {
     }))
 
   // Columns for versions table
-  const versionColumns: ColumnsType<DocumentVersion> = [
+  const versionColumns: ColumnsType<VersionItem> = [
+    {
+      title: '',
+      key: 'select',
+      width: 40,
+      render: (_, record) => (
+        <Checkbox
+          checked={selectedVersions.includes(record.version_number)}
+          disabled={
+            selectedVersions.length >= 2 &&
+            !selectedVersions.includes(record.version_number)
+          }
+          onChange={(e) => {
+            if (e.target.checked) {
+              setSelectedVersions([...selectedVersions, record.version_number])
+            } else {
+              setSelectedVersions(selectedVersions.filter((v) => v !== record.version_number))
+            }
+          }}
+        />
+      ),
+    },
     {
       title: 'Версия',
       dataIndex: 'version_number',
       key: 'version_number',
       width: 80,
-      render: (v: number) => <Tag>v{v}</Tag>,
-    },
-    {
-      title: 'Тип',
-      dataIndex: 'file_type',
-      key: 'file_type',
-      width: 80,
-      render: (t: string) => <Tag>{t.toUpperCase()}</Tag>,
-    },
-    {
-      title: 'Размер',
-      dataIndex: 'file_size',
-      key: 'file_size',
-      width: 100,
-      render: (s: number) => formatFileSize(s),
-    },
-    {
-      title: 'Комментарий',
-      dataIndex: 'version_notes',
-      key: 'version_notes',
-      ellipsis: true,
-      render: (val: string | null) => val || <Text type="secondary">—</Text>,
-    },
-    {
-      title: 'Загрузил',
-      dataIndex: ['uploaded_by', 'email'],
-      key: 'uploaded_by',
-      width: 200,
+      render: (v: number) => (
+        <Space>
+          <strong>v{v}</strong>
+          {v === Math.max(...versions.map((x) => x.version_number)) && (
+            <Tag color="blue">Текущая</Tag>
+          )}
+        </Space>
+      ),
     },
     {
       title: 'Дата',
       dataIndex: 'created_at',
       key: 'created_at',
       width: 160,
-      render: (date: string) => dayjs(date).format('DD.MM.YYYY HH:mm'),
+      render: (d: string) => dayjs(d).format('DD.MM.YYYY HH:mm'),
+    },
+    {
+      title: 'Размер',
+      dataIndex: 'file_size',
+      key: 'file_size',
+      width: 100,
+      render: (s: number) => {
+        if (!s) return '—'
+        return `${(s / 1024).toFixed(1)} KB`
+      },
+    },
+    {
+      title: 'Комментарий',
+      dataIndex: 'comment',
+      key: 'comment',
+      ellipsis: true,
+      render: (c: string) => c || '—',
     },
     {
       title: 'Действия',
       key: 'actions',
-      width: 100,
-      render: (_: any, record: DocumentVersion) => (
-        <Button
-          type="primary"
-          size="small"
-          icon={<DownloadOutlined />}
-          onClick={() => handleDownload(record.id)}
-        >
-          Скачать
-        </Button>
+      width: 160,
+      render: (_, record) => (
+        <Space>
+          <Tooltip title="Скачать">
+            <Button
+              type="text"
+              icon={<DownloadOutlined />}
+              onClick={() => handleDownloadByVersion(record.version_number)}
+            />
+          </Tooltip>
+          {canEdit && (
+            <Tooltip title="Восстановить эту версию">
+              <Button
+                type="text"
+                icon={<RestOutlined />}
+                onClick={() => handleRestore(record.version_number)}
+              />
+            </Tooltip>
+          )}
+        </Space>
       ),
     },
   ]
@@ -661,6 +915,24 @@ export default function DocumentDetailPage() {
               <Tag color={STATUS_COLORS[doc.status]}>
                 {STATUS_LABELS[doc.status]}
               </Tag>
+              {doc.document_type && (
+                <Tag
+                  color={
+                    ({
+                      regulation: 'blue',
+                      order: 'orange',
+                      provision: 'purple',
+                      policy: 'green',
+                      directive: 'cyan',
+                    } as Record<string, string>)[doc.document_type] || 'default'
+                  }
+                >
+                  {DOCUMENT_TYPE_LABELS[doc.document_type as DocumentType] || doc.document_type}
+                </Tag>
+              )}
+              {doc.analysis_status && (
+                <AnalysisStatusBadge status={doc.analysis_status} />
+              )}
               {doc.current_version && (
                 <Text type="secondary">
                   v{doc.current_version.version_number}
@@ -680,6 +952,16 @@ export default function DocumentDetailPage() {
           >
             Скачать
           </Button>
+
+          {/* Revise button — for editor+ only */}
+          {canEdit && doc.status !== 'archived' && (
+            <Button
+              icon={<EditOutlined />}
+              onClick={() => setReviseModalVisible(true)}
+            >
+              Внести правки
+            </Button>
+          )}
 
           {/* Only show status change for non-archived documents */}
           {doc.status !== 'archived' && (
@@ -748,6 +1030,25 @@ export default function DocumentDetailPage() {
                       <Tag color={STATUS_COLORS[doc.status]}>
                         {STATUS_LABELS[doc.status]}
                       </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Тип документа">
+                      {doc.document_type ? (
+                        <Tag
+                          color={
+                            ({
+                              regulation: 'blue',
+                              order: 'orange',
+                              provision: 'purple',
+                              policy: 'green',
+                              directive: 'cyan',
+                            } as Record<string, string>)[doc.document_type] || 'default'
+                          }
+                        >
+                          {DOCUMENT_TYPE_LABELS[doc.document_type as DocumentType] || doc.document_type}
+                        </Tag>
+                      ) : (
+                        <Text type="secondary">—</Text>
+                      )}
                     </Descriptions.Item>
                     <Descriptions.Item label="Описание" span={2}>
                       {doc.description || <Text type="secondary">Нет описания</Text>}
@@ -943,15 +1244,31 @@ export default function DocumentDetailPage() {
               key: 'versions',
               label: `Версии (${doc.stats.versions_count})`,
               children: (
-                <div>
-                  <div style={{ marginBottom: 16, textAlign: 'right' }}>
-                    {doc.status !== 'archived' && (
-                      <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={handleOpenVersionModal}
-                      >
-                        Создать версию
+                <>
+                  <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Space>
+                      {doc.status !== 'archived' && (
+                        <Button
+                          type="primary"
+                          icon={<UploadOutlined />}
+                          onClick={() => setUploadModalVisible(true)}
+                        >
+                          Загрузить новую версию
+                        </Button>
+                      )}
+                      {selectedVersions.length === 2 && (
+                        <Button
+                          icon={<DiffOutlined />}
+                          loading={versionDiffLoading}
+                          onClick={handleCompare}
+                        >
+                          Сравнить v{Math.min(...selectedVersions)} и v{Math.max(...selectedVersions)}
+                        </Button>
+                      )}
+                    </Space>
+                    {selectedVersions.length > 0 && (
+                      <Button size="small" onClick={() => setSelectedVersions([])}>
+                        Снять выбор ({selectedVersions.length})
                       </Button>
                     )}
                   </div>
@@ -963,13 +1280,23 @@ export default function DocumentDetailPage() {
                   ) : (
                     <Table
                       dataSource={versions}
-                      rowKey="id"
+                      rowKey="version_number"
                       columns={versionColumns}
                       pagination={false}
                       size="middle"
                     />
                   )}
-                </div>
+
+                  <VersionUploadModal
+                    visible={uploadModalVisible}
+                    onClose={() => setUploadModalVisible(false)}
+                    documentId={documentId}
+                    onSuccess={() => {
+                      loadVersions()
+                      fetchDocument(documentId)
+                    }}
+                  />
+                </>
               ),
             },
             {
@@ -1210,6 +1537,288 @@ export default function DocumentDetailPage() {
               ),
             },
             {
+              key: 'amendments',
+              label: 'Изменения',
+              children: (
+                <div>
+                  {amendmentsLoading ? (
+                    <Spin style={{ display: 'block', margin: '40px auto' }} />
+                  ) : doc.document_type === 'order' ? (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <Title level={5} style={{ margin: 0 }}>Вносит изменения в</Title>
+                      </div>
+                      {amendedDocuments.length === 0 ? (
+                        <Empty description="Этот приказ не вносит изменения ни в один документ" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      ) : (
+                        <Table
+                          dataSource={amendedDocuments}
+                          rowKey="link_id"
+                          pagination={false}
+                          size="small"
+                          columns={[
+                            {
+                              title: 'Название',
+                              dataIndex: 'title',
+                              key: 'title',
+                              ellipsis: true,
+                            },
+                            {
+                              title: 'Тип',
+                              dataIndex: 'document_type',
+                              key: 'document_type',
+                              width: 120,
+                              render: (type: string) => (
+                                <Tag color={
+                                  ({
+                                    regulation: 'blue',
+                                    order: 'orange',
+                                    provision: 'purple',
+                                    policy: 'green',
+                                    directive: 'cyan',
+                                  } as Record<string, string>)[type] || 'default'
+                                }>
+                                  {DOCUMENT_TYPE_LABELS[type as DocumentType] || type}
+                                </Tag>
+                              ),
+                            },
+                            {
+                              title: 'Статус',
+                              dataIndex: 'status',
+                              key: 'status',
+                              width: 140,
+                              render: (status: string) => (
+                                <Tag color={STATUS_COLORS[status as DocumentStatus]}>
+                                  {STATUS_LABELS[status as DocumentStatus] || status}
+                                </Tag>
+                              ),
+                            },
+                            {
+                              title: 'Дата связи',
+                              dataIndex: 'created_at',
+                              key: 'created_at',
+                              width: 160,
+                              render: (date: string) => dayjs(date).format('DD.MM.YYYY'),
+                            },
+                          ]}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <Title level={5} style={{ margin: 0 }}>Изменяется приказами</Title>
+                        {(canEdit && doc.document_type !== 'order') && (
+                          <Button
+                            type="primary"
+                            size="small"
+                            icon={<PlusOutlined />}
+                            onClick={() => {
+                              setNewLinkType('amends')
+                              setLinkModalOpen(true)
+                            }}
+                          >
+                            Связать с приказом
+                          </Button>
+                        )}
+                      </div>
+                      {amendments.length === 0 ? (
+                        <Empty description="Нет приказов, изменяющих этот документ" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      ) : (
+                        <Table
+                          dataSource={amendments}
+                          rowKey="link_id"
+                          pagination={false}
+                          size="small"
+                          columns={[
+                            {
+                              title: 'Приказ',
+                              dataIndex: 'title',
+                              key: 'title',
+                              ellipsis: true,
+                            },
+                            {
+                              title: 'Статус',
+                              dataIndex: 'status',
+                              key: 'status',
+                              width: 140,
+                              render: (status: string) => (
+                                <Tag color={STATUS_COLORS[status as DocumentStatus]}>
+                                  {STATUS_LABELS[status as DocumentStatus] || status}
+                                </Tag>
+                              ),
+                            },
+                            {
+                              title: 'Дата связи',
+                              dataIndex: 'created_at',
+                              key: 'created_at',
+                              width: 160,
+                              render: (date: string) => dayjs(date).format('DD.MM.YYYY'),
+                            },
+                          ]}
+                        />
+                      )}
+                    </>
+                  )}
+                </div>
+              ),
+            },
+            {
+              key: 'analysis',
+              label: `Анализ${analysisHistory.length > 0 ? ` (${analysisHistory.length})` : ''}`,
+              children: (
+                <div>
+                  {/* Current status badge */}
+                  <div style={{ marginBottom: 16 }}>
+                    <Space align="center" size="middle">
+                      <Text strong>Статус анализа:</Text>
+                      {doc.analysis_status ? (
+                        <AnalysisStatusBadge status={doc.analysis_status} />
+                      ) : (
+                        <AnalysisStatusBadge status="none" />
+                      )}
+                      {doc.analysis_hash && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          Hash: {doc.analysis_hash.slice(0, 12)}…
+                        </Text>
+                      )}
+                    </Space>
+                  </div>
+
+                  {/* Reanalyze button */}
+                  {doc.analysis_status !== 'running' && doc.status !== 'archived' && canAnalyze && (
+                    <div style={{ marginBottom: 16 }}>
+                      <Popconfirm
+                        title="Перезапустить анализ?"
+                        description="Будет запущен повторный анализ документа."
+                        onConfirm={handleReanalyze}
+                        okText="Запустить"
+                        cancelText="Отмена"
+                      >
+                        <Button
+                          type="primary"
+                          icon={<ReloadOutlined />}
+                          loading={reanalyzing}
+                        >
+                          Перезапустить анализ
+                        </Button>
+                      </Popconfirm>
+                    </div>
+                  )}
+
+                  {/* Last pipeline progress */}
+                  {selectedAnalysis && (
+                    <Card
+                      title="Прогресс pipeline"
+                      size="small"
+                      style={{ marginBottom: 16 }}
+                    >
+                      <AnalysisPipelineProgress
+                        stepsStatus={selectedAnalysis.steps_status}
+                        status={selectedAnalysis.status}
+                        errorMessage={selectedAnalysis.error_message}
+                        resultSummary={selectedAnalysis.result_summary}
+                      />
+                    </Card>
+                  )}
+
+                  {/* Analysis history table */}
+                  <Title level={5} style={{ marginBottom: 16 }}>
+                    История анализов
+                  </Title>
+                  {analysisHistoryLoading ? (
+                    <Spin style={{ display: 'block', margin: '40px auto' }} />
+                  ) : analysisHistory.length === 0 ? (
+                    <Empty description="История анализов пуста" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ) : (
+                    <Table
+                      dataSource={analysisHistory}
+                      rowKey="id"
+                      pagination={false}
+                      size="middle"
+                      onRow={(record) => ({
+                        onClick: () => {
+                          loadAnalysisDetail(record.id)
+                        },
+                        style: { cursor: 'pointer' },
+                      })}
+                      columns={[
+                        {
+                          title: 'ID',
+                          dataIndex: 'id',
+                          key: 'id',
+                          width: 70,
+                        },
+                        {
+                          title: 'Дата запуска',
+                          dataIndex: 'created_at',
+                          key: 'created_at',
+                          width: 160,
+                          render: (date: string) => dayjs(date).format('DD.MM.YYYY HH:mm'),
+                        },
+                        {
+                          title: 'Статус',
+                          dataIndex: 'status',
+                          key: 'status',
+                          width: 120,
+                          render: (status: string) => (
+                            <Tag
+                              color={
+                                status === 'complete' ? 'success'
+                                : status === 'error' ? 'error'
+                                : 'processing'
+                              }
+                            >
+                              {status === 'complete' ? 'Завершён'
+                                : status === 'error' ? 'Ошибка'
+                                : 'Выполняется…'}
+                            </Tag>
+                          ),
+                        },
+                        {
+                          title: 'Ошибка',
+                          dataIndex: 'error_message',
+                          key: 'error_message',
+                          ellipsis: true,
+                          render: (val: string | null) =>
+                            val || <Text type="secondary">—</Text>,
+                        },
+                        {
+                          title: 'Результат',
+                          key: 'result',
+                          width: 200,
+                          render: (_: any, record: AnalysisHistoryItem) => {
+                            if (!record.result_summary) {
+                              return <Text type="secondary">—</Text>
+                            }
+                            const parts: string[] = []
+                            if (record.result_summary.sections_found !== undefined)
+                              parts.push(`${record.result_summary.sections_found} разд.`)
+                            if (record.result_summary.terms_found !== undefined)
+                              parts.push(`${record.result_summary.terms_found} терм.`)
+                            if (record.result_summary.abbreviations_found !== undefined)
+                              parts.push(`${record.result_summary.abbreviations_found} сокр.`)
+                            if (record.result_summary.references_found !== undefined)
+                              parts.push(`${record.result_summary.references_found} ссылок`)
+                            return parts.length > 0
+                              ? <Text>{parts.join(', ')}</Text>
+                              : <Text type="secondary">—</Text>
+                          },
+                        },
+                      ]}
+                    />
+                  )}
+
+                  {/* Detail progress for selected analysis */}
+                  {selectedAnalysisLoading && (
+                    <div style={{ marginTop: 16, textAlign: 'center' }}>
+                      <Spin tip="Загрузка деталей анализа…" />
+                    </div>
+                  )}
+                </div>
+              ),
+            },
+            {
               key: 'history',
               label: `История статусов (${statusHistory.length})`,
               children: (
@@ -1249,67 +1858,254 @@ export default function DocumentDetailPage() {
                 </div>
               ),
             },
+            {
+              key: 'revisions',
+              label: `Ревизии (${revisions.length})`,
+              children: (
+                <div>
+                  {revisionsLoading ? (
+                    <Spin style={{ display: 'block', margin: '40px auto' }} />
+                  ) : revisions.length === 0 ? (
+                    <Empty
+                      description="История ревизий пуста. Используйте кнопку «Внести правки», чтобы создать первую ревизию."
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    />
+                  ) : (
+                    <Table
+                      dataSource={revisions}
+                      rowKey="id"
+                      pagination={false}
+                      size="middle"
+                      columns={[
+                        {
+                          title: 'Дата',
+                          dataIndex: 'created_at',
+                          key: 'created_at',
+                          width: 160,
+                          render: (date: string) => dayjs(date).format('DD.MM.YYYY HH:mm'),
+                        },
+                        {
+                          title: 'Комментарий',
+                          dataIndex: 'comment',
+                          key: 'comment',
+                          ellipsis: true,
+                          render: (text: string) => {
+                            if (text.length > 100) {
+                              return <span title={text}>{text.slice(0, 100)}…</span>
+                            }
+                            return text
+                          },
+                        },
+                        {
+                          title: 'Раздел',
+                          dataIndex: 'target_section',
+                          key: 'target_section',
+                          width: 160,
+                          render: (val: string | undefined) => val || <Text type="secondary">—</Text>,
+                        },
+                        {
+                          title: 'Изменения',
+                          key: 'stats',
+                          width: 140,
+                          render: (_: any, record: RevisionHistoryItem) => {
+                            if (!record.stats) return <Text type="secondary">—</Text>
+                            return (
+                              <Text>
+                                <Text style={{ color: '#52c41a' }}>+{record.stats.added}</Text>
+                                /
+                                <Text style={{ color: '#ff4d4f' }}>−{record.stats.removed}</Text>
+                                {record.stats.changed > 0 && (
+                                  <>
+                                    {' '}/ <Text style={{ color: '#faad14' }}>~{record.stats.changed}</Text>
+                                  </>
+                                )}
+                              </Text>
+                            )
+                          },
+                        },
+                        {
+                          title: 'Кем',
+                          dataIndex: 'created_by_email',
+                          key: 'created_by_email',
+                          width: 200,
+                          render: (val: string | undefined) => val || <Text type="secondary">—</Text>,
+                        },
+                        {
+                          title: 'Действия',
+                          key: 'actions',
+                          width: 160,
+                          render: (_: any, record: RevisionHistoryItem) => (
+                            <Button
+                              type="link"
+                              size="small"
+                              onClick={() => handleViewRevisionDiff(record.id)}
+                            >
+                              Просмотреть diff
+                            </Button>
+                          ),
+                        },
+                      ]}
+                    />
+                  )}
+                </div>
+              ),
+            },
           ]}
         />
       </Card>
 
-      {/* Create Version Modal */}
+      {/* Version Compare Modal */}
       <Modal
-        title="Создать новую версию"
-        open={versionModalOpen}
-        onOk={handleCreateVersion}
-        onCancel={() => setVersionModalOpen(false)}
-        confirmLoading={versionCreating}
-        okText="Создать"
-        cancelText="Отмена"
+        title={
+          versionDiffResult
+            ? `Сравнение v${selectedVersions.sort((a, b) => a - b)[0]} и v${selectedVersions.sort((a, b) => a - b)[1]}`
+            : 'Сравнение версий'
+        }
+        open={versionDiffVisible}
+        onCancel={() => setVersionDiffVisible(false)}
+        width="90%"
+        style={{ top: 20 }}
+        footer={[
+          <Button key="close" onClick={() => setVersionDiffVisible(false)}>
+            Закрыть
+          </Button>,
+        ]}
       >
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <div>
-            <Text strong>Файл документа</Text>
-            <Dragger
-              multiple={false}
-              accept=".docx,.pdf"
-              fileList={versionFileList}
-              onRemove={() => setVersionFileList([])}
-              beforeUpload={(file) => {
-                const isValid =
-                  file.type === 'application/pdf' ||
-                  file.name.endsWith('.docx') ||
-                  file.name.endsWith('.pdf')
-                if (!isValid) {
-                  message.error('Допустимы только файлы DOCX и PDF')
-                  return Upload.LIST_IGNORE
-                }
-                setVersionFileList([file as UploadFile])
-                return false
-              }}
-              style={{ marginTop: 4 }}
-            >
-              <p className="ant-upload-drag-icon">
-                <InboxOutlined />
-              </p>
-              <p className="ant-upload-text">
-                Нажмите или перетащите файл сюда
-              </p>
-              <p className="ant-upload-hint">
-                DOCX или PDF
-              </p>
-            </Dragger>
-          </div>
+        {versionDiffResult && (
+          <DiffView
+            oldText=""
+            newText=""
+            htmlDiff={versionDiffResult.html_diff}
+            stats={versionDiffResult.stats}
+            documentTitle={`Сравнение версий`}
+            onClose={() => setVersionDiffVisible(false)}
+          />
+        )}
+      </Modal>
 
-          <div>
-            <Text strong>Комментарий к версии</Text>
-            <TextArea
-              rows={3}
-              value={versionNotes}
-              onChange={(e) => setVersionNotes(e.target.value)}
-              placeholder="Что изменилось в этой версии (необязательно)"
-              style={{ marginTop: 4 }}
-            />
+      {/* Revise Modal */}
+      <ReviseModal
+        visible={reviseModalVisible}
+        onClose={() => setReviseModalVisible(false)}
+        documentId={documentId}
+        onSuccess={(response) => {
+          setReviseModalVisible(false)
+          setDiffResult(response)
+          setDiffVisible(true)
+        }}
+      />
+
+      {/* Diff View Modal (from revise) */}
+      <Modal
+        title={`Изменения документа: ${diffResult?.document_title}`}
+        open={diffVisible}
+        onCancel={() => setDiffVisible(false)}
+        width="90%"
+        style={{ top: 20 }}
+        footer={[
+          <Button key="close" onClick={() => setDiffVisible(false)}>
+            Закрыть
+          </Button>,
+        ]}
+      >
+        {diffResult && (
+          <DiffView
+            oldText={diffResult.old_text}
+            newText={diffResult.new_text}
+            htmlDiff={diffResult.diff.html_diff}
+            stats={diffResult.diff.stats}
+            documentTitle={diffResult.document_title}
+            onClose={() => setDiffVisible(false)}
+          />
+        )}
+      </Modal>
+
+      {/* Revision Detail Diff Modal (from history) */}
+      <Modal
+        title={revisionDetail ? `Ревизия #${revisionDetail.id}` : 'Загрузка...'}
+        open={revisionDetailModalVisible}
+        onCancel={() => {
+          setRevisionDetailModalVisible(false)
+          setRevisionDetail(null)
+        }}
+        width="90%"
+        style={{ top: 20 }}
+        footer={[
+          <Button key="close" onClick={() => {
+            setRevisionDetailModalVisible(false)
+            setRevisionDetail(null)
+          }}>
+            Закрыть
+          </Button>,
+        ]}
+      >
+        {revisionDetailLoading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <Spin tip="Загрузка ревизии..." />
           </div>
-        </Space>
+        ) : revisionDetail ? (
+          <DiffView
+            oldText={revisionDetail.old_text}
+            newText={revisionDetail.new_text}
+            htmlDiff={revisionDetail.old_text !== revisionDetail.new_text
+              ? buildHtmlDiffFromTexts(revisionDetail.old_text, revisionDetail.new_text)
+              : '<table class="diff"><tr><td style="padding: 8px; color: #999;">Нет изменений</td></tr></table>'
+            }
+            stats={revisionDetail.stats || { added: 0, removed: 0, changed: 0 }}
+            documentTitle={`Ревизия #${revisionDetail.id} — ${revisionDetail.comment}`}
+            onClose={() => {
+              setRevisionDetailModalVisible(false)
+              setRevisionDetail(null)
+            }}
+          />
+        ) : (
+          <Empty description="Не удалось загрузить ревизию" />
+        )}
       </Modal>
 
     </div>
   )
+}
+
+// Helper: build a simple HTML diff table from two texts
+function buildHtmlDiffFromTexts(oldText: string, newText: string): string {
+  const oldLines = oldText.split('\n')
+  const newLines = newText.split('\n')
+  let html = '<table class="diff" width="100%">'
+
+  const maxLines = Math.max(oldLines.length, newLines.length)
+  for (let i = 0; i < maxLines; i++) {
+    const oldLine = oldLines[i] ?? ''
+    const newLine = newLines[i] ?? ''
+    let rowClass = ''
+    let lineContent = ''
+
+    if (oldLine !== newLine) {
+      if (oldLine === '') {
+        rowClass = 'diff_add'
+        lineContent = `<td class="diff_header">${i + 1}</td><td></td><td class="diff_header">${i + 1}</td><td class="diff_add">${escapeHtml(newLine)}</td>`
+      } else if (newLine === '') {
+        rowClass = 'diff_sub'
+        lineContent = `<td class="diff_header">${i + 1}</td><td class="diff_sub">${escapeHtml(oldLine)}</td><td class="diff_header">${i + 1}</td><td></td>`
+      } else {
+        rowClass = 'diff_chg'
+        lineContent = `<td class="diff_header">${i + 1}</td><td class="diff_chg">${escapeHtml(oldLine)}</td><td class="diff_header">${i + 1}</td><td class="diff_chg">${escapeHtml(newLine)}</td>`
+      }
+    } else {
+      lineContent = `<td class="diff_header">${i + 1}</td><td>${escapeHtml(oldLine)}</td><td class="diff_header">${i + 1}</td><td>${escapeHtml(newLine)}</td>`
+    }
+
+    html += `<tr class="${rowClass}">${lineContent}</tr>`
+  }
+
+  html += '</table>'
+  return html
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }

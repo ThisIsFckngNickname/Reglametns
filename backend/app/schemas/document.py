@@ -23,6 +23,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
 class DocumentCreate(BaseModel):
     title: str
     description: Optional[str] = None
+    document_type: str = "regulation"
 
     @field_validator("title")
     @classmethod
@@ -31,11 +32,20 @@ class DocumentCreate(BaseModel):
             raise ValueError("Title must be between 1 and 500 characters")
         return v.strip()
 
+    @field_validator("document_type")
+    @classmethod
+    def validate_document_type(cls, v: str) -> str:
+        allowed = {"regulation", "order", "provision", "policy", "directive"}
+        if v not in allowed:
+            raise ValueError(f"Invalid document_type '{v}'. Allowed: {', '.join(sorted(allowed))}")
+        return v
+
 
 class DocumentUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     status: Optional[DocumentStatus] = None
+    document_type: Optional[str] = None
 
     @field_validator("title")
     @classmethod
@@ -87,9 +97,12 @@ class DocumentResponse(BaseModel):
     company_id: int
     title: str
     description: Optional[str] = None
+    document_type: str = "regulation"
     status: DocumentStatus
     created_by: Optional[dict] = None  # {"id": int, "email": str}
     was_analyzed: bool = False
+    analysis_hash: Optional[str] = None
+    analysis_status: str = "none"
     current_version: Optional[DocumentVersionBrief] = None
     stats: DocumentStats = DocumentStats()
     created_at: datetime
@@ -102,6 +115,7 @@ class DocumentListItem(BaseModel):
     id: int
     title: str
     description: Optional[str] = None
+    document_type: str = "regulation"
     status: DocumentStatus
     was_analyzed: bool = False
     created_at: datetime

@@ -60,6 +60,8 @@ class DocumentUpdateService:
             doc.title = data.title
         if data.description is not None:
             doc.description = data.description
+        if data.document_type is not None:
+            doc.document_type = data.document_type
         if data.status is not None:
             # Validate transition (admins can bypass)
             if old_status != data.status:
@@ -84,24 +86,9 @@ class DocumentUpdateService:
                 db=db,
             )
 
-            # Trigger pattern analysis if document is approved and not yet analyzed
-            if data.status == DocumentStatus.APPROVED and not doc.was_analyzed:
-                from app.services.pattern_analysis_service import pattern_analysis_service
-                try:
-                    analysis_result = await pattern_analysis_service.analyze_document(
-                        document_id=id,
-                        db=db,
-                    )
-                    logger.info(
-                        f"Pattern analysis triggered for document {id}: {analysis_result}"
-                    )
-                except Exception as e:
-                    logger.error(f"Pattern analysis failed for document {id}: {e}", exc_info=True)
-                    # Don't fail the update if analysis fails
-
-            # Trigger RAG indexing when document is approved
+            # Trigger analysis pipeline when document is approved
             if data.status == DocumentStatus.APPROVED:
-                await self._trigger_rag_indexing(id, company_id, db)
+                await self._trigger_analysis_pipeline(id, company_id, db)
 
         return await self.get_document(id, company_id, db)
 
@@ -154,23 +141,9 @@ class DocumentUpdateService:
             db=db,
         )
 
-        # Trigger pattern analysis if approved and not yet analyzed
-        if new_status == DocumentStatus.APPROVED and not doc.was_analyzed:
-            from app.services.pattern_analysis_service import pattern_analysis_service
-            try:
-                analysis_result = await pattern_analysis_service.analyze_document(
-                    document_id=document_id,
-                    db=db,
-                )
-                logger.info(
-                    f"Pattern analysis triggered for document {document_id}: {analysis_result}"
-                )
-            except Exception as e:
-                logger.error(f"Pattern analysis failed for document {document_id}: {e}", exc_info=True)
-
-        # Trigger RAG indexing when approved
+        # Trigger analysis pipeline when document is approved
         if new_status == DocumentStatus.APPROVED:
-            await self._trigger_rag_indexing(document_id, company_id, db)
+            await self._trigger_analysis_pipeline(document_id, company_id, db)
 
         return {
             "message": f"Status changed from {old_status.value} to {new_status.value}",
@@ -247,6 +220,37 @@ class DocumentUpdateService:
                 exc_info=True,
             )
             # Don't fail the update if RAG indexing fails
+
+    async def _trigger_analysis_pipeline(
+        self,
+        document_id: int,
+        company_id: int,
+        db: AsyncSession,
+    ) -> None:
+        """Trigger the analysis pipeline when a document is approved.
+
+        Idempotency: if the document content hasn't changed since the last
+        successful analysis, the pipeline is not triggered.
+        """
+        from app.services.analysis_pipeline_service import analysis_pipeline_service
+
+        try:
+            analysis_id = await analysis_pipeline_service.trigger_analysis(
+                document_id=document_id,
+                company_id=company_id,
+                db=db,
+                force=False,
+            )
+            if analysis_id:
+                logger.info(f"Analysis pipeline triggered: analysis_id={analysis_id}")
+            else:
+                logger.info(
+                    f"Analysis skipped (idempotency): document_id={document_id}"
+                )
+        except Exception as e:
+            logger.error(
+                f"Failed to trigger analysis pipeline: {e}", exc_info=True
+            )
 
     async def archive_document(self, id: int, company_id: int, db: AsyncSession) -> None:
         """Archive a document by setting status to 'archived'."""

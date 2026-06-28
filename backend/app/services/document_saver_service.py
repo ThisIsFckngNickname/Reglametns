@@ -5,6 +5,7 @@ Extracted from duplicated save logic in GeneratorService.generate()
 and GeneratorService.generate_mock().
 """
 
+import hashlib
 import logging
 import os
 from io import BytesIO
@@ -47,6 +48,7 @@ class DocumentSaver:
         abbreviations: list[dict],
         user: User,
         db: AsyncSession,
+        document_type: str = "regulation",
     ) -> DocumentResponse:
         """Save a generated document to DB and storage.
 
@@ -69,6 +71,7 @@ class DocumentSaver:
             company_id=company_id,
             title=doc_title,
             description=description,
+            document_type=document_type,
             status=DocumentStatus.DRAFT,
             created_by=user.id,
         )
@@ -87,6 +90,7 @@ class DocumentSaver:
         rel_path = await storage.save(fake_file, company_id, document.id, 1)
 
         # 4. Create DocumentVersion
+        file_hash = hashlib.sha256(file_content).hexdigest()
         version = DocumentVersion(
             document_id=document.id,
             version_number=1,
@@ -94,6 +98,7 @@ class DocumentSaver:
             file_type="docx",
             file_size=len(file_content),
             mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            file_hash=file_hash,
             uploaded_by=user.id,
         )
         db.add(version)
@@ -132,6 +137,7 @@ class DocumentSaver:
             company_id=company_id,
             title=doc_title,
             description=description,
+            document_type=document_type,
             status=DocumentStatus.DRAFT,
             current_version=current_version_brief,
             created_by={"id": user.id, "email": user.email},

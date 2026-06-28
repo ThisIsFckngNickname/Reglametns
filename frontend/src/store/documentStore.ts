@@ -17,9 +17,9 @@ interface DocumentStore {
   detailError: string | null
 
   // Actions
-  fetchDocuments: (params?: { status?: string; search?: string; page?: number }) => Promise<void>
+  fetchDocuments: (params?: { status?: string; search?: string; type?: string; page?: number }) => Promise<void>
   fetchDocument: (id: number) => Promise<void>
-  updateDocument: (id: number, data: { title?: string; description?: string; status?: string }) => Promise<void>
+  updateDocument: (id: number, data: { title?: string; description?: string; status?: string; document_type?: string }) => Promise<void>
   archiveDocument: (id: number) => Promise<void>
   clearCurrent: () => void
   clearError: () => void
@@ -52,6 +52,9 @@ export const useDocumentStore = create<DocumentStore>((set, get) => ({
       }
       if (params?.search) {
         searchParams.search = params.search
+      }
+      if (params?.type) {
+        searchParams.type = params.type
       }
 
       const response: PaginatedResponse<DocumentListItem> =
@@ -89,12 +92,13 @@ export const useDocumentStore = create<DocumentStore>((set, get) => ({
   },
 
   // Update document
-  updateDocument: async (id: number, data: { title?: string; description?: string; status?: string }) => {
+  updateDocument: async (id: number, data: { title?: string; description?: string; status?: string; document_type?: string }) => {
     try {
-      const apiData: { title?: string; description?: string; status?: DocumentStatus } = {}
+      const apiData: { title?: string; description?: string; status?: DocumentStatus; document_type?: string } = {}
       if (data.title !== undefined) apiData.title = data.title
       if (data.description !== undefined) apiData.description = data.description
       if (data.status !== undefined) apiData.status = data.status as DocumentStatus
+      if (data.document_type !== undefined) apiData.document_type = data.document_type
       const updated = await documentsApi.updateDocument(id, apiData)
       set({ currentDocument: updated })
       // Also update in list if present

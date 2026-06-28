@@ -3,6 +3,8 @@ Web search service for retrieving topic information from the internet.
 
 Supports DuckDuckGo (free, no API key) as the default provider.
 Can be extended to support Tavily, SerpAPI, etc.
+
+V2 (B1): Added enrich_prompt() method with page content extraction.
 """
 
 import logging
@@ -165,6 +167,108 @@ class WebSearchService:
         except Exception as e:
             logger.error(f"SerpAPI search failed: {e}")
             return []
+
+    # ── V2 (B1) methods ──────────────────────────────────────────────
+
+    async def _fetch_page_content(self, url: str, timeout: int = 10) -> str | None:
+        """Fetch and extract text content from a webpage.
+
+        Uses httpx to fetch the page, then BeautifulSoup to extract
+        readable text content.
+
+        Args:
+            url: Page URL to fetch.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            Extracted text content, or None if failed.
+        """
+        try:
+            import httpx
+            from bs4 import BeautifulSoup
+
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                )
+            }
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+
+                soup = BeautifulSoup(response.text, "lxml")
+
+                # Remove non-content elements
+                for tag in soup(["script", "style", "nav", "footer", "header",
+                               "aside", "noscript", "iframe", "form"]):
+                    tag.decompose()
+
+                # Extract text
+                text = soup.get_text(separator="\n", strip=True)
+
+                # Clean up: collapse multiple newlines, limit length
+                lines = [line.strip() for line in text.split("\n") if line.strip()]
+                text = "\n".join(lines)
+
+                # Limit to 5000 chars per page
+                if len(text) > 5000:
+                    text = text[:5000] + "\n\n[...]"
+
+                return text
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch page content {url}: {e}")
+            return None
+
+    async def enrich_prompt(self, topic: str, max_results: int = 5) -> str | None:
+        """Search the web and format results for LLM prompt.
+
+        Pipeline:
+        1. Search DuckDuckGo for the topic
+        2. Pick top 3 results
+        3. Fetch full page content for each
+        4. Format as structured text
+
+        Args:
+            topic: Document topic to search for.
+            max_results: Max search results (default 5).
+
+        Returns:
+            Formatted text for prompt insertion, or None if search failed.
+        """
+        try:
+            results = await self.search(topic, max_results)
+            if not results:
+                logger.info(f"No web search results for: {topic[:50]}")
+                return None
+
+            formatted = []
+            for i, r in enumerate(results[:3], 1):
+                title = r.get("title", "")
+                url = r.get("url", "")
+                snippet = r.get("snippet", "")
+
+                content = await self._fetch_page_content(url)
+
+                formatted.append(f"Источник {i}: {title}")
+                if content:
+                    formatted.append(f"    {content[:1000]}")
+                else:
+                    formatted.append(f"    {snippet[:500]}")
+                formatted.append(f"    URL: {url}")
+
+            result_text = "\n".join(formatted)
+            logger.info(
+                f"Web search enrich_prompt: {len(results)} results, "
+                f"{len(result_text)} chars for: {topic[:50]}"
+            )
+            return result_text
+
+        except Exception as e:
+            logger.error(f"Web search enrich_prompt failed: {e}", exc_info=True)
+            return None  # Never block generation
 
 
 # Singleton

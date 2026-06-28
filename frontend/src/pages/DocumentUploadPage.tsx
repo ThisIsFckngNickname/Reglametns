@@ -4,6 +4,7 @@ import {
   Upload,
   Form,
   Input,
+  Select,
   Button,
   Card,
   Typography,
@@ -74,6 +75,7 @@ export default function DocumentUploadPage() {
         file,
         values.title || undefined,
         values.description || undefined,
+        values.document_type || undefined,
         (percent) => setProgress(percent)
       )
       setUploadedDocId(result.id)
@@ -148,6 +150,22 @@ export default function DocumentUploadPage() {
 
       <Card>
         <Form form={form} layout="vertical">
+          <Form.Item
+            name="document_type"
+            label="Тип документа"
+            initialValue="regulation"
+          >
+            <Select
+              options={[
+                { value: 'regulation', label: 'Регламент' },
+                { value: 'order', label: 'Приказ' },
+                { value: 'provision', label: 'Положение' },
+                { value: 'policy', label: 'Политика' },
+                { value: 'directive', label: 'Распоряжение' },
+              ]}
+            />
+          </Form.Item>
+
           <Form.Item
             name="file"
             label="Файл документа"

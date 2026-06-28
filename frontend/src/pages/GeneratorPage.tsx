@@ -16,6 +16,8 @@ import {
   Result,
   Tag,
   message,
+  Checkbox,
+  Radio,
 } from 'antd'
 import {
   RobotOutlined,
@@ -24,12 +26,16 @@ import {
   FileTextOutlined,
   ReloadOutlined,
   ThunderboltOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons'
-import type { UploadFile } from 'antd'
+import type { UploadFile, RcFile } from 'antd/es/upload/interface'
 import { useGeneratorStore } from '../store/generatorStore'
-import { getDocuments, downloadDocumentVersion } from '../api/documents'
+import { useAuthStore } from '../store/authStore'
+import { getDocuments, getDocument, downloadDocumentVersion, uploadDocument } from '../api/documents'
 import { USE_MSW } from '../api/client'
 import type { DocumentListItem } from '../types'
+import { DOCUMENT_TYPE_OPTIONS } from '../types/companyTerms'
+import type { DocumentType } from '../types/companyTerms'
 
 const { TextArea } = Input
 const { Dragger } = Upload
@@ -43,50 +49,107 @@ function formatFileSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
+/**
+ * Upload a draft file and return the document version ID.
+ * Uses the existing upload endpoint, then fetches the document
+ * to extract current_version.id.
+ */
+async function uploadDraftFile(file: File): Promise<number> {
+  const uploadResult = await uploadDocument(file)
+  const docId = uploadResult.id
+  // Fetch the full document to get current version ID
+  const docDetail = await getDocument(docId)
+  const versionId = docDetail.current_version?.id
+  if (!versionId) {
+    throw new Error('Не удалось получить ID версии загруженного черновика')
+  }
+  return versionId
+}
+
 export default function GeneratorPage() {
   const navigate = useNavigate()
-  const { state, generate, reset } = useGeneratorStore()
+  const { state, generateV2, reset } = useGeneratorStore()
+  const { user } = useAuthStore()
+  const companyId = user?.active_company?.id
 
-  // Form state (kept locally to survive reset/store state transitions)
+  // Form state
   const [context, setContext] = useState('')
+  const [documentType, setDocumentType] = useState<DocumentType>('regulation')
   const [fileList, setFileList] = useState<UploadFile[]>([])
+  const [draftFileId, setDraftFileId] = useState<number | null>(null)
   const [influencingDocIds, setInfluencingDocIds] = useState<number[]>([])
+  const [searchEnabled, setSearchEnabled] = useState(true)
   const [documents, setDocuments] = useState<DocumentListItem[]>([])
   const [docsLoading, setDocsLoading] = useState(false)
+  const [draftUploading, setDraftUploading] = useState(false)
 
   // Load influencing documents list on mount
   useEffect(() => {
     setDocsLoading(true)
-    getDocuments({ page: 1, page_size: 100 })
+    getDocuments({ page: 1, page_size: 100, status: 'approved' })
       .then((res) => setDocuments(res.items))
       .catch(() => {
-        // Silently fail — select will just show no options
+        // Silently fail
       })
       .finally(() => setDocsLoading(false))
   }, [])
 
   const isContextValid = context.trim().length >= 20
 
+  // Draft file upload handler
+  const handleDraftUpload = useCallback(async (file: RcFile): Promise<false> => {
+    setDraftUploading(true)
+    try {
+      const versionId = await uploadDraftFile(file)
+      setDraftFileId(versionId)
+      setFileList([
+        {
+          uid: `-${Date.now()}`,
+          name: file.name,
+          status: 'done',
+          size: file.size,
+          originFileObj: file,
+        },
+      ])
+      message.success(`Черновик "${file.name}" загружен`)
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail?.message || 'Ошибка загрузки черновика')
+    } finally {
+      setDraftUploading(false)
+    }
+    return false
+  }, [])
+
+  const handleDraftRemove = useCallback(() => {
+    setFileList([])
+    setDraftFileId(null)
+  }, [])
+
   const handleGenerate = useCallback(() => {
-    if (!isContextValid) return
+    if (!isContextValid || !companyId) return
 
-    const files: File[] = fileList
-      .filter((f) => f.originFileObj)
-      .map((f) => f.originFileObj as File)
-
-    generate(context.trim(), files, influencingDocIds)
-  }, [context, fileList, influencingDocIds, generate, isContextValid])
+    generateV2({
+      topic: context.trim(),
+      document_type: documentType,
+      company_id: companyId,
+      draft_file_id: draftFileId,
+      influence_document_ids: influencingDocIds.length > 0 ? influencingDocIds : undefined,
+      search_enabled: searchEnabled,
+    })
+  }, [context, documentType, companyId, draftFileId, influencingDocIds, searchEnabled, generateV2, isContextValid])
 
   const handleRetry = useCallback(() => {
     reset()
-    // Local form state is preserved automatically
   }, [reset])
 
   const handleResetForm = useCallback(() => {
     reset()
     setContext('')
+    setDocumentType('regulation')
     setFileList([])
+    setDraftFileId(null)
     setInfluencingDocIds([])
+    setSearchEnabled(true)
   }, [reset])
 
   const handleDownload = useCallback(async () => {
@@ -110,12 +173,28 @@ export default function GeneratorPage() {
 
   const isDemoMode = USE_MSW
 
-  // ---- Render states ----
+  // Map V2 step to step index for display
+  const getStepIndex = (step: string): number => {
+    const stepOrder = ['preparing', 'searching', 'analyzing', 'generating', 'formatting']
+    const idx = stepOrder.indexOf(step)
+    return idx >= 0 ? idx : 0
+  }
 
-  // Progress / generating / formatting
-  if (state.step === 'preparing' || state.step === 'generating' || state.step === 'formatting') {
-    const currentStepIndex =
-      state.step === 'preparing' ? 0 : state.step === 'generating' ? 1 : 2
+  // ─── Render: Progress/Generation ───────────────────────────────────
+  if (
+    state.step === 'preparing' ||
+    state.step === 'searching' ||
+    state.step === 'analyzing' ||
+    state.step === 'generating' ||
+    state.step === 'formatting'
+  ) {
+    const stepItems = [
+      { title: 'Подготовка', description: 'Контекст и профиль' },
+      { title: 'Поиск информации', description: 'Интернет-поиск' },
+      { title: 'Анализ документов', description: 'Внутренние документы' },
+      { title: 'Генерация', description: 'Создание текста' },
+      { title: 'Оформление', description: 'Форматирование DOCX' },
+    ]
 
     return (
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -127,12 +206,8 @@ export default function GeneratorPage() {
         <Card>
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
             <Steps
-              current={currentStepIndex}
-              items={[
-                { title: 'Подготовка', description: 'Анализ контекста' },
-                { title: 'Генерация', description: 'Создание текста' },
-                { title: 'Оформление', description: 'Форматирование DOCX' },
-              ]}
+              current={getStepIndex(state.step)}
+              items={stepItems}
             />
 
             <div style={{ textAlign: 'center', padding: '24px 0' }}>
@@ -150,7 +225,7 @@ export default function GeneratorPage() {
     )
   }
 
-  // Done
+  // ─── Render: Done ───────────────────────────────────────────────────
   if (state.step === 'done' && state.result) {
     const { result } = state
 
@@ -231,7 +306,7 @@ export default function GeneratorPage() {
     )
   }
 
-  // Error
+  // ─── Render: Error ──────────────────────────────────────────────────
   if (state.step === 'error') {
     return (
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -260,7 +335,7 @@ export default function GeneratorPage() {
     )
   }
 
-  // ---- Form mode (default) ----
+  // ─── Render: Form ───────────────────────────────────────────────────
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
       <Title level={3} style={{ marginBottom: 8 }}>
@@ -268,9 +343,9 @@ export default function GeneratorPage() {
         Генератор документов
       </Title>
       <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>
-        Опишите, какой документ нужно создать. Нейросеть GigaChat Pro подготовит
-        проект регламента на основе вашего описания, приложенных черновиков и
-        связанных документов.
+        Опишите, какой документ нужно создать. Нейросеть подготовит
+        проект регламента на основе вашего описания, приложенного черновика,
+        документов холдинга и актуального законодательства.
       </Text>
 
       {isDemoMode && (
@@ -286,14 +361,33 @@ export default function GeneratorPage() {
 
       <Card>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          {/* Context description */}
+          {/* Document type */}
           <div>
             <Text strong style={{ display: 'block', marginBottom: 8 }}>
-              Контекстное описание <span style={{ color: '#ff4d4f' }}>*</span>
+              Тип документа
+            </Text>
+            <Radio.Group
+              value={documentType}
+              onChange={(e) => setDocumentType(e.target.value)}
+              optionType="button"
+              buttonStyle="solid"
+            >
+              {DOCUMENT_TYPE_OPTIONS.map((opt) => (
+                <Radio.Button key={opt.value} value={opt.value}>
+                  {opt.label}
+                </Radio.Button>
+              ))}
+            </Radio.Group>
+          </div>
+
+          {/* Topic description */}
+          <div>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>
+              Тема документа <span style={{ color: '#ff4d4f' }}>*</span>
             </Text>
             <TextArea
-              rows={8}
-              placeholder="Опишите, что должен регулировать документ. Например: &quot;Регламент взаимодействия между отделами при согласовании договоров&quot;"
+              rows={6}
+              placeholder="Опишите тему документа. Например: &quot;Регламент по ведению учёта горюче-смазочных материалов на предприятии&quot;"
               value={context}
               onChange={(e) => setContext(e.target.value)}
               showCount
@@ -307,53 +401,46 @@ export default function GeneratorPage() {
             )}
           </div>
 
-          {/* Draft files upload */}
+          {/* Draft file upload */}
           <div>
             <Text strong style={{ display: 'block', marginBottom: 8 }}>
-              Загрузка черновиков
+              Черновик документа (опционально)
             </Text>
-              <Dragger
-                accept=".docx,.pdf,.xlsx"
-              multiple
+            <Dragger
+              accept=".docx,.txt"
+              multiple={false}
               fileList={fileList}
-              beforeUpload={(file) => {
-                setFileList((prev) => [
-                  ...prev,
-                  {
-                    uid: `-${Date.now()}-${prev.length}`,
-                    name: file.name,
-                    status: 'done',
-                    size: file.size,
-                    originFileObj: file,
-                  },
-                ])
-                return false
-              }}
-              onRemove={(file) => {
-                setFileList((prev) => prev.filter((f) => f.uid !== file.uid))
-              }}
+              beforeUpload={handleDraftUpload}
+              onRemove={handleDraftRemove}
+              disabled={draftUploading}
             >
               <p className="ant-upload-drag-icon">
                 <InboxOutlined />
               </p>
               <p className="ant-upload-text">
-                Перетащите файлы сюда или нажмите для выбора
+                Перетащите файл сюда или нажмите для выбора
               </p>
               <p className="ant-upload-hint">
-                Поддерживаются форматы .docx и .pdf
+                Поддерживаются форматы .docx, .txt. Черновик будет загружен на сервер.
               </p>
             </Dragger>
+            {draftUploading && (
+              <Space style={{ marginTop: 8 }}>
+                <Spin size="small" />
+                <Text type="secondary">Загрузка черновика...</Text>
+              </Space>
+            )}
           </div>
 
           {/* Influencing documents */}
           <div>
             <Text strong style={{ display: 'block', marginBottom: 8 }}>
-              Влияющие документы
+              Влияющие документы (опционально)
             </Text>
             <Select
               mode="multiple"
               showSearch
-              placeholder="Выберите документы из реестра"
+              placeholder="Выберите утверждённые документы из реестра"
               loading={docsLoading}
               value={influencingDocIds}
               onChange={setInfluencingDocIds}
@@ -365,8 +452,26 @@ export default function GeneratorPage() {
                 value: doc.id,
                 label: `ID: ${doc.id} — ${doc.title}`,
               }))}
-              notFoundContent={docsLoading ? <Spin size="small" /> : 'Нет документов'}
+              notFoundContent={docsLoading ? <Spin size="small" /> : 'Нет утверждённых документов'}
             />
+          </div>
+
+          {/* Search enabled */}
+          <div>
+            <Checkbox
+              checked={searchEnabled}
+              onChange={(e) => setSearchEnabled(e.target.checked)}
+            >
+              <Space>
+                <GlobalOutlined />
+                <span>Искать информацию в интернете</span>
+              </Space>
+            </Checkbox>
+            <br />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              При включении нейросеть будет искать актуальные нормативные документы и
+              законодательство по теме.
+            </Text>
           </div>
 
           {/* Generate button */}
@@ -374,7 +479,7 @@ export default function GeneratorPage() {
             type="primary"
             size="large"
             icon={<RobotOutlined />}
-            disabled={!isContextValid}
+            disabled={!isContextValid || !companyId}
             onClick={handleGenerate}
             block
             style={{ height: 48, fontSize: 16 }}

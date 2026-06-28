@@ -299,5 +299,296 @@ class PromptBuilder:
         )
 
 
+    # ── V2 (B1): New super-prompt format ─────────────────────────────
+
+    DOCUMENT_TYPES = {
+        "regulation": {
+            "label": "Регламент",
+            "description": "Нормативный документ, устанавливающий правила, процедуры и ответственность",
+            "default_structure": "1. Общие положения\n2. Термины и определения\n3. Порядок выполнения\n4. Заключительные положения",
+        },
+        "order": {
+            "label": "Приказ",
+            "description": "Распорядительный документ руководителя",
+            "default_structure": "1. Общие положения\n2. Приказываю\n3. Контроль исполнения",
+        },
+        "provision": {
+            "label": "Положение",
+            "description": "Нормативный документ, определяющий статус, цели, задачи и функции",
+            "default_structure": "1. Общие положения\n2. Цели и задачи\n3. Функции и права\n4. Ответственность\n5. Заключительные положения",
+        },
+        "policy": {
+            "label": "Политика",
+            "description": "Документ, определяющий принципы и правила в определённой области",
+            "default_structure": "1. Общие положения\n2. Принципы\n3. Правила и процедуры\n4. Мониторинг и контроль\n5. Заключительные положения",
+        },
+        "directive": {
+            "label": "Распоряжение",
+            "description": "Оперативный распорядительный документ",
+            "default_structure": "1. Основание\n2. Распорядительная часть\n3. Контроль исполнения",
+        },
+    }
+
+    SYSTEM_PROMPT_V2_TEMPLATE = """
+Ты — юрист холдинга «{company_name}» ({company_legal_form}).
+Составляй официальные corporate documents на русском языке.
+
+СТРУКТУРА ДОКУМЕНТА (тип: {document_type_label}):
+{structure_text}
+
+ТЕРМИНЫ ХОЛДИНГА (обязательны к использованию):
+{terms_text}
+
+СОКРАЩЕНИЯ ХОЛДИНГА:
+{abbreviations_text}
+
+ПОХОЖИЕ ДОКУМЕНТЫ (из базы знаний холдинга):
+{similar_chunks_text}
+
+ИНФОРМАЦИЯ ИЗ ИНТЕРНЕТА (актуальное законодательство, практики):
+{web_results_text}
+
+ВЛИЯЮЩИЕ ДОКУМЕНТЫ:
+{influencing_docs_text}
+
+Требования к документу:
+1. Строгая нумерация разделов и пунктов
+2. Используй термины холдинга без искажения
+3. Если нужен новый термин — добавь его в раздел "Термины и определения"
+   с пометкой [НОВЫЙ]
+4. Ссылайся на внутренние документы холдинга, если релевантно
+5. Ссылайся на законодательство, если релевантно
+6. Каждый раздел: 3-7 пунктов, полное раскрытие темы
+7. Ответ ТОЛЬКО в формате JSON (без markdown-обертки)
+"""
+
+    USER_PROMPT_V2_TEMPLATE = """
+ЧЕРНОВИК ПОЛЬЗОВАТЕЛЯ (используй как основу, дополни и структурируй):
+{draft_text}
+
+Тема документа: {topic}
+Тип документа: {document_type_label}
+
+На основе черновика (в первую очередь) и темы сгенерируй документ.
+Сохрани структуру, терминологию и содержание черновика.
+Раскрой и детализируй каждый раздел.
+
+Формат ответа (строго JSON, без markdown-обертки):
+{{
+  "title": "Название документа",
+  "description": "Краткое описание",
+  "sections": [
+    {{
+      "title": "1. Название раздела",
+      "level": 1,
+      "content": "Текст раздела...",
+      "subsections": [
+        {{
+          "title": "1.1. Название подраздела",
+          "level": 2,
+          "content": "Текст..."
+        }}
+      ]
+    }}
+  ],
+  "terms": [{{"term": "...", "definition": "..."}}],
+  "abbreviations": [{{"abbreviation": "...", "full_form": "..."}}],
+  "references": [{{"title": "...", "source": "..."}}]
+}}
+"""
+
+    @staticmethod
+    def get_document_type_label(document_type: str) -> str:
+        """Get human-readable label for document type."""
+        return PromptBuilder.DOCUMENT_TYPES.get(
+            document_type, {}
+        ).get("label", document_type)
+
+    def build_messages_v2(
+        self,
+        company,
+        topic: str,
+        document_type: str = "regulation",
+        company_terms: list | None = None,
+        company_abbreviations: list | None = None,
+        similar_chunks: list[dict] | None = None,
+        web_results_text: str | None = None,
+        draft_text: str | None = None,
+        influencing_docs: list[dict] | None = None,
+    ) -> list[dict]:
+        """Build V2 system + user messages for LLM using super-prompt format.
+
+        Args:
+            company: Company model instance.
+            topic: Document topic.
+            document_type: Document type key.
+            company_terms: List of {"term": str, "definition": str}.
+            company_abbreviations: List of {"abbreviation": str, "full_form": str}.
+            similar_chunks: List of chunks from ChromaDB.
+            web_results_text: Formatted web search results string or None.
+            draft_text: Extracted draft text or empty string.
+            influencing_docs: List of influencing document dicts.
+
+        Returns:
+            List of message dicts compatible with LLM API.
+        """
+        system_prompt = self._build_system_prompt_v2(
+            company=company,
+            document_type=document_type,
+            company_terms=company_terms or [],
+            company_abbreviations=company_abbreviations or [],
+            similar_chunks=similar_chunks or [],
+            web_results_text=web_results_text,
+            influencing_docs=influencing_docs or [],
+        )
+        user_prompt = self._build_user_prompt_v2(
+            topic=topic,
+            document_type=document_type,
+            draft_text=draft_text or "",
+        )
+
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+    def _build_system_prompt_v2(
+        self,
+        company,
+        document_type: str,
+        company_terms: list[dict],
+        company_abbreviations: list[dict],
+        similar_chunks: list[dict],
+        web_results_text: str | None,
+        influencing_docs: list[dict],
+    ) -> str:
+        """Build V2 system prompt with all knowledge sources."""
+        doc_type_label = self.get_document_type_label(document_type)
+
+        # Structure text
+        structure_text = self._format_structure_v2(company, document_type)
+
+        # Terms text
+        terms_text = self._format_terms_v2(company_terms)
+
+        # Abbreviations text
+        abbreviations_text = self._format_abbreviations_v2(company_abbreviations)
+
+        # Similar chunks text
+        similar_chunks_text = self._format_similar_chunks_v2(similar_chunks)
+
+        # Web results text
+        web_text = self._format_web_results_v2(web_results_text)
+
+        # Influencing docs text
+        influencing_text = self._format_influencing_docs_v2(influencing_docs)
+
+        return self.SYSTEM_PROMPT_V2_TEMPLATE.format(
+            company_name=company.name,
+            company_legal_form=company.legal_form,
+            document_type_label=doc_type_label,
+            structure_text=structure_text,
+            terms_text=terms_text,
+            abbreviations_text=abbreviations_text,
+            similar_chunks_text=similar_chunks_text,
+            web_results_text=web_text,
+            influencing_docs_text=influencing_text,
+        )
+
+    def _build_user_prompt_v2(
+        self,
+        topic: str,
+        document_type: str,
+        draft_text: str,
+    ) -> str:
+        """Build V2 user prompt with draft + topic."""
+        doc_type_label = self.get_document_type_label(document_type)
+        if not draft_text:
+            draft_text = "Черновик не загружен."
+
+        return self.USER_PROMPT_V2_TEMPLATE.format(
+            draft_text=draft_text,
+            topic=topic,
+            document_type_label=doc_type_label,
+        )
+
+    def _format_structure_v2(self, company, document_type: str) -> str:
+        """Format document structure for V2 prompt."""
+        doc_type_info = self.DOCUMENT_TYPES.get(document_type, {})
+        default_structure = doc_type_info.get("default_structure", "Стандартная структура документа.")
+
+        if company.document_structure:
+            if isinstance(company.document_structure, str):
+                return company.document_structure
+            try:
+                import json
+                return json.dumps(company.document_structure, ensure_ascii=False, indent=2)
+            except (TypeError, ValueError):
+                return str(company.document_structure)
+
+        return default_structure
+
+    def _format_terms_v2(self, terms: list[dict]) -> str:
+        """Format company terms for V2 prompt."""
+        if not terms:
+            return "Термины холдинга не определены."
+
+        # Limit to 50 terms
+        display_terms = terms[:50]
+        lines = [f"  - {t['term']}: {t['definition']}" for t in display_terms if t.get("term") and t.get("definition")]
+
+        if len(terms) > 50:
+            lines.append(f"  ... и ещё {len(terms) - 50} терминов.")
+
+        return "\n".join(lines) if lines else "Термины холдинга не определены."
+
+    def _format_abbreviations_v2(self, abbreviations: list[dict]) -> str:
+        """Format company abbreviations for V2 prompt."""
+        if not abbreviations:
+            return "Сокращения холдинга не определены."
+
+        # Limit to 20 abbreviations
+        display_abbrs = abbreviations[:20]
+        lines = [f"  - {a['abbreviation']} — {a['full_form']}" for a in display_abbrs if a.get("abbreviation") and a.get("full_form")]
+
+        return "\n".join(lines) if lines else "Сокращения холдинга не определены."
+
+    def _format_similar_chunks_v2(self, chunks: list[dict]) -> str:
+        """Format similar chunks from ChromaDB for V2 prompt."""
+        if not chunks:
+            return "Похожие документы не найдены."
+
+        lines = []
+        for i, chunk in enumerate(chunks[:5], 1):
+            text = chunk.get("text", chunk.get("content", ""))
+            source = chunk.get("title", chunk.get("source", "Неизвестный документ"))
+            lines.append(f"  Фрагмент {i} (из: {source}):")
+            lines.append(f"    {text[:600]}")
+
+        return "\n".join(lines)
+
+    def _format_web_results_v2(self, web_text: str | None) -> str:
+        """Format web search results for V2 prompt."""
+        if web_text:
+            return web_text
+        return "Поиск в интернете не выполнялся или недоступен."
+
+    def _format_influencing_docs_v2(self, docs: list[dict]) -> str:
+        """Format influencing documents for V2 prompt."""
+        if not docs:
+            return "Влияющие документы не указаны."
+
+        lines = []
+        for d in docs:
+            title = d.get("title", "Без названия")
+            source = d.get("source", "Внутренний документ")
+            full_text = d.get("full_text", "")
+            lines.append(f"  - {title} ({source})")
+            if full_text:
+                lines.append(f"    Содержание: {full_text[:2000]}")
+
+        return "\n".join(lines)
+
+
 # Singleton
 prompt_builder = PromptBuilder()

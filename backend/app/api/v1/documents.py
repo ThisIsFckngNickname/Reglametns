@@ -24,7 +24,8 @@ from app.schemas.document import (
     StatusChangeRequest,
     UploadResponse,
 )
-from app.schemas.links import DocumentLinkCreate
+from app.schemas.links import AmendmentItem, DocumentLinkCreate
+from app.services.document_amendment_service import document_amendment_service
 from app.services.document_service import document_service
 from app.services.storage_service import storage
 
@@ -36,14 +37,24 @@ async def upload_document(
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
+    document_type: str = Form("regulation"),
     user: User = Depends(require_editor),
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a document (Word .docx or PDF), parse it, and store all extracted data."""
+    # Validate document_type
+    allowed_types = {"regulation", "order", "provision", "policy", "directive"}
+    if document_type not in allowed_types:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid document_type '{document_type}'. Allowed: {', '.join(sorted(allowed_types))}",
+        )
     result = await document_service.upload(
         file=file,
         title=title,
         description=description,
+        document_type=document_type,
         user=user,
         company_id=user.active_company_id,
         db=db,
@@ -55,6 +66,7 @@ async def upload_document(
 async def list_documents(
     status: Optional[str] = Query(None, description="Filter by status"),
     search: Optional[str] = Query(None, description="Search in title/description"),
+    document_type: Optional[str] = Query(None, alias="type", description="Filter by document type"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     user: User = Depends(require_active_company),
@@ -65,6 +77,7 @@ async def list_documents(
         company_id=user.active_company_id,
         status=status,
         search=search,
+        document_type=document_type,
         page=page,
         page_size=page_size,
         db=db,
@@ -471,3 +484,33 @@ async def delete_link(
         db=db,
     )
     return Response(status_code=204)
+
+
+@router.get("/{document_id}/amendments", response_model=list[AmendmentItem])
+async def get_document_amendments(
+    document_id: int,
+    current_user: User = Depends(require_active_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get orders that amend this document."""
+    items = await document_amendment_service.get_amendments(
+        document_id=document_id,
+        company_id=current_user.active_company_id,
+        db=db,
+    )
+    return items
+
+
+@router.get("/{document_id}/amended-documents", response_model=list[AmendmentItem])
+async def get_amended_documents(
+    document_id: int,
+    current_user: User = Depends(require_active_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get documents amended by this order."""
+    items = await document_amendment_service.get_amended_documents(
+        document_id=document_id,
+        company_id=current_user.active_company_id,
+        db=db,
+    )
+    return items

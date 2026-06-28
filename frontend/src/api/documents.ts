@@ -3,19 +3,23 @@ import type {
   DocumentListItem, DocumentDetail, DocumentVersion,
   DocumentSection, DocumentTerm, DocumentAbbreviation,
   DocumentTable, UploadResponse, PaginatedResponse,
-  DocumentStatus, DocumentLink,
+  DocumentStatus, DocumentLink, AmendmentItem,
+  ReviseRequest, ReviseResponse, RevisionHistoryItem, RevisionDetail,
+  VersionItem, VersionCreateResponse, VersionRestoreResponse, VersionDiffResponse, DiffResult,
 } from '../types'
 
 export async function uploadDocument(
   file: File,
   title?: string,
   description?: string,
+  documentType?: string,
   onProgress?: (percent: number) => void
 ): Promise<UploadResponse> {
   const formData = new FormData()
   formData.append('file', file)
   if (title) formData.append('title', title)
   if (description) formData.append('description', description)
+  if (documentType) formData.append('document_type', documentType)
 
   const response = await apiClient.post('/documents/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -31,6 +35,7 @@ export async function uploadDocument(
 export async function getDocuments(params?: {
   status?: DocumentStatus
   search?: string
+  type?: string
   page?: number
   page_size?: number
 }): Promise<PaginatedResponse<DocumentListItem>> {
@@ -45,7 +50,7 @@ export async function getDocument(id: number): Promise<DocumentDetail> {
 
 export async function updateDocument(
   id: number,
-  data: { title?: string; description?: string; status?: DocumentStatus }
+  data: { title?: string; description?: string; status?: DocumentStatus; document_type?: string }
 ): Promise<DocumentDetail> {
   const response = await apiClient.put(`/documents/${id}`, data)
   return response.data
@@ -104,10 +109,10 @@ export async function deleteDocumentLink(
   await apiClient.delete(`/documents/${documentId}/links/${linkId}`)
 }
 
-export async function getDocumentVersions(id: number): Promise<{ items: DocumentVersion[] }> {
+export async function getDocumentVersions(id: number): Promise<VersionItem[]> {
   const response = await apiClient.get(`/documents/${id}/versions`)
   const data = response.data
-  return { items: Array.isArray(data) ? data : data.items ?? [] }
+  return Array.isArray(data) ? data : (data.items ?? [])
 }
 
 export function getDownloadUrl(versionId: number): string {
@@ -154,6 +159,43 @@ export async function downloadDocumentVersion(
   window.URL.revokeObjectURL(url)
 }
 
+// ── Phase 7: Version management ────────────────────────────────────────
+
+export async function downloadVersion(documentId: number, versionNumber: number): Promise<void> {
+  window.open(`/api/v1/documents/${documentId}/versions/${versionNumber}/download`, '_blank')
+}
+
+export async function createVersion(
+  documentId: number,
+  file: File,
+  comment?: string,
+): Promise<VersionCreateResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (comment) formData.append('comment', comment)
+  const response = await apiClient.post(`/documents/${documentId}/versions`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return response.data
+}
+
+export async function restoreVersion(
+  documentId: number,
+  versionNumber: number,
+): Promise<VersionRestoreResponse> {
+  const response = await apiClient.post(`/documents/${documentId}/versions/${versionNumber}/restore`)
+  return response.data
+}
+
+export async function compareVersions(
+  documentId: number,
+  v1: number,
+  v2: number,
+): Promise<VersionDiffResponse> {
+  const response = await apiClient.get(`/documents/${documentId}/versions/${v1}/diff/${v2}`)
+  return response.data
+}
+
 export async function getDocumentSections(id: number): Promise<{ sections: DocumentSection[] }> {
   const response = await apiClient.get(`/documents/${id}/sections`)
   const data = response.data
@@ -178,6 +220,17 @@ export async function getDocumentTables(id: number): Promise<{ tables: DocumentT
   return { tables: Array.isArray(data) ? data : data.tables ?? [] }
 }
 
+// Amendments
+export async function getDocumentAmendments(id: number): Promise<AmendmentItem[]> {
+  const response = await apiClient.get(`/documents/${id}/amendments`)
+  return response.data
+}
+
+export async function getDocumentAmendedDocuments(id: number): Promise<AmendmentItem[]> {
+  const response = await apiClient.get(`/documents/${id}/amended-documents`)
+  return response.data
+}
+
 export interface StatusHistoryItem {
   id: number
   document_id: number
@@ -191,5 +244,22 @@ export interface StatusHistoryItem {
 
 export async function getDocumentHistory(id: number): Promise<StatusHistoryItem[]> {
   const response = await apiClient.get<StatusHistoryItem[]>(`/documents/${id}/history`)
+  return response.data
+}
+
+// ---- Revision APIs (Phase 6) ----
+
+export async function reviseDocument(id: number, data: ReviseRequest): Promise<ReviseResponse> {
+  const response = await apiClient.post(`/documents/${id}/revise`, data)
+  return response.data
+}
+
+export async function getDocumentRevisions(id: number): Promise<RevisionHistoryItem[]> {
+  const response = await apiClient.get(`/documents/${id}/revisions`)
+  return response.data
+}
+
+export async function getDocumentRevisionDetail(id: number, revisionId: number): Promise<RevisionDetail> {
+  const response = await apiClient.get(`/documents/${id}/revisions/${revisionId}`)
   return response.data
 }

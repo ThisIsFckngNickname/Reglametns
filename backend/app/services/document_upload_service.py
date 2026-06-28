@@ -2,6 +2,7 @@
 Document upload service — file upload, parsing, and version creation.
 """
 
+import hashlib
 import logging
 import os
 from io import BytesIO
@@ -61,6 +62,7 @@ class DocumentUploadService:
         user: User,
         company_id: int,
         db: AsyncSession,
+        document_type: str = "regulation",
     ) -> UploadResponse:
         """Upload a file, parse it, and store all extracted data."""
         # Validate file
@@ -94,6 +96,7 @@ class DocumentUploadService:
             company_id=company_id,
             title=doc_title,
             description=description,
+            document_type=document_type,
             status=DocumentStatus.DRAFT,
             created_by=user.id,
         )
@@ -116,6 +119,7 @@ class DocumentUploadService:
 
         # Create DocumentVersion record
         mime_type = _get_mime_type(file_type)
+        file_hash = hashlib.sha256(content).hexdigest()
         version = DocumentVersion(
             document_id=document.id,
             version_number=version_number,
@@ -123,6 +127,7 @@ class DocumentUploadService:
             file_type=file_type,
             file_size=file_size,
             mime_type=mime_type,
+            file_hash=file_hash,
             uploaded_by=user.id,
         )
         db.add(version)
@@ -253,6 +258,7 @@ class DocumentUploadService:
         )
 
         # Create version record
+        file_hash = hashlib.sha256(content).hexdigest()
         version = DocumentVersion(
             document_id=document_id,
             version_number=version_number,
@@ -260,6 +266,7 @@ class DocumentUploadService:
             file_type=file_type,
             file_size=file_size,
             mime_type=mime_type,
+            file_hash=file_hash,
             version_notes=version_notes,
             uploaded_by=user.id,
         )
@@ -292,6 +299,7 @@ class DocumentUploadService:
             "version_number": version.version_number,
             "file_type": version.file_type,
             "file_size": version.file_size,
+            "file_hash": version.file_hash,
             "mime_type": version.mime_type,
             "version_notes": version.version_notes,
             "uploaded_by": version.uploaded_by,

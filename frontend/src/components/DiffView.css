@@ -1,0 +1,28 @@
+.diff-container table.diff {
+  width: 100%;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+
+.diff-container table.diff td {
+  padding: 2px 8px;
+  vertical-align: top;
+}
+
+.diff-container .diff_header {
+  background-color: #f5f5f5;
+  color: #666;
+}
+
+.diff-container .diff_add {
+  background-color: #e6ffed;
+}
+
+.diff-container .diff_chg {
+  background-color: #fff8e1;
+}
+
+.diff-container .diff_sub {
+  background-color: #ffeef0;
+}

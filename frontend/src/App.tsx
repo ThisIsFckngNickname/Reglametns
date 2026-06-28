@@ -28,6 +28,7 @@ import DocumentDetailPage from './pages/DocumentDetailPage'
 import GeneratorPage from './pages/GeneratorPage'
 import CompanyProfilePage from './pages/CompanyProfilePage'
 import AdminUsersPage from './pages/AdminUsersPage'
+import TermsPage from './pages/TermsPage'
 
 export default function App() {
   const { initialize, isAuthenticated, setUser, logout, isLoading } =
@@ -141,6 +142,14 @@ export default function App() {
               element={
                 <CompanyRequired>
                   <GeneratorPage />
+                </CompanyRequired>
+              }
+            />
+            <Route
+              path="/terms"
+              element={
+                <CompanyRequired>
+                  <TermsPage />
                 </CompanyRequired>
               }
             />

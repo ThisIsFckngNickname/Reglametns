@@ -32,3 +32,28 @@ export async function generateDocument(
   onProgress?.('formatting', 90)
   return response.data
 }
+
+// ─── V2 Generator ─────────────────────────────────────────────────────
+
+export interface GenerateV2Request {
+  topic: string
+  document_type: string
+  company_id: number
+  draft_file_id?: number | null
+  influence_document_ids?: number[]
+  search_enabled?: boolean
+}
+
+export async function generateDocumentV2(
+  data: GenerateV2Request,
+  onProgress?: (step: string, percent: number) => void,
+): Promise<GenerateResponse> {
+  onProgress?.('preparing', 5)
+
+  const response = await apiClient.post('/generator/generate-v2', data, {
+    timeout: 600000,
+  })
+
+  onProgress?.('formatting', 90)
+  return response.data
+}

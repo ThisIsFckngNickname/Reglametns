@@ -87,6 +87,53 @@ class PatternAnalysisService:
             "abbreviations_collected": len(abbrs_data),
         }
 
+    async def analyze_document_patterns(
+        self,
+        document_id: int,
+        db: AsyncSession,
+    ) -> dict:
+        """Analyze document patterns and update company profile.
+
+        Does NOT check was_analyzed (for pipeline use).
+        This method is called by AnalysisPipelineService for each analysis run.
+
+        Args:
+            document_id: ID of the document to analyze.
+            db: Database session.
+
+        Returns:
+            Dict with analysis results.
+        """
+        doc = await self._load_document(document_id, db)
+        if doc is None:
+            return {"error": "Document not found"}
+
+        latest_version = await self._get_latest_version(doc.id, db)
+        if latest_version is None:
+            return {"error": "No versions found"}
+
+        structure = await self._extract_structure(latest_version, db)
+        style = await self._extract_style(latest_version, db)
+        terms_data = await self._collect_terms(doc.id, db)
+        abbrs_data = await self._collect_abbreviations(doc.id, db)
+
+        company = await self._load_company(doc.company_id, db)
+        if company:
+            await self._update_company_patterns(
+                company, structure, style, terms_data, abbrs_data, db,
+            )
+
+        return {
+            "document_id": doc.id,
+            "company_id": doc.company_id,
+            "structure_extracted": bool(structure.get("sections")),
+            "style_extracted": bool(
+                style.get("typical_phrases") or style.get("avg_sentence_length", 0) > 0
+            ),
+            "terms_collected": len(terms_data),
+            "abbreviations_collected": len(abbrs_data),
+        }
+
     async def _load_document(self, document_id: int, db: AsyncSession) -> Optional[Document]:
         stmt = select(Document).where(Document.id == document_id)
         result = await db.execute(stmt)

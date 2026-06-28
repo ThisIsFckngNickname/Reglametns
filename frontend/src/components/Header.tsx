@@ -1,5 +1,5 @@
 import { Layout, Button, Typography, Space, Tag } from 'antd'
-import { LogoutOutlined, UserOutlined, HomeOutlined, FileTextOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons'
+import { LogoutOutlined, UserOutlined, HomeOutlined, FileTextOutlined, RobotOutlined, SettingOutlined, BookOutlined } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 
@@ -22,6 +22,7 @@ export default function Header() {
   // Determine active nav item
   const isDocumentsActive = location.pathname.startsWith('/documents')
   const isGeneratorActive = location.pathname.startsWith('/generator')
+  const isTermsActive = location.pathname.startsWith('/terms')
 
   return (
     <Layout.Header
@@ -48,18 +49,25 @@ export default function Header() {
 
         <Space size="small">
           <Button
-            type={isDocumentsActive ? 'primary' : 'text'}
-            icon={<FileTextOutlined />}
-            onClick={() => navigate('/documents')}
-          >
-            Документы
-          </Button>
-          <Button
             type={isGeneratorActive ? 'primary' : 'text'}
             icon={<RobotOutlined />}
             onClick={() => navigate('/generator')}
           >
             Генератор
+          </Button>
+          <Button
+            type={isTermsActive ? 'primary' : 'text'}
+            icon={<BookOutlined />}
+            onClick={() => navigate('/terms')}
+          >
+            Термины и сокращения
+          </Button>
+          <Button
+            type={isDocumentsActive ? 'primary' : 'text'}
+            icon={<FileTextOutlined />}
+            onClick={() => navigate('/documents')}
+          >
+            Документы
           </Button>
           {user?.companies?.some(h => h.role === 'admin') && (
             <Button
