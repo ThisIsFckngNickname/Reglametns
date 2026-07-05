@@ -1,4 +1,4 @@
-"""
+﻿"""
 Настройка базы данных SQLite.
 - WAL mode для производительности
 - sync SQLAlchemy (достаточно для одного пользователя)
@@ -6,13 +6,12 @@
 """
 
 import logging
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Создание engine с WAL mode для SQLite
 engine = create_engine(
     settings.database_url,
     connect_args={"check_same_thread": False},
@@ -22,7 +21,6 @@ engine = create_engine(
 
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
-    """Включаем WAL mode и оптимизации SQLite при подключении."""
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA synchronous=NORMAL")
@@ -35,18 +33,27 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+def _run_migrations():
+    """Apply schema migrations for existing databases."""
+    import sqlalchemy as sa
+    insp = sa.inspect(engine)
+    columns = [c["name"] for c in insp.get_columns("document_analyses")]
+    if "cancelled" not in columns:
+        logger.info("Migration: adding cancelled column to document_analyses")
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE document_analyses ADD COLUMN cancelled INTEGER DEFAULT 0"))
+            conn.commit()
+            logger.info("Migration complete: cancelled column added")
+
+
 def init_db():
-    """Создание всех таблиц (если не существуют)."""
-    import app.models  # noqa: F401 — импорт для регистрации моделей
+    import app.models
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
     logger.info("Database tables created successfully")
 
 
 def get_db():
-    """FastAPI dependency: получение сессии БД.
-
-    Используется как Generator для автоматического закрытия сессии.
-    """
     db = SessionLocal()
     try:
         yield db

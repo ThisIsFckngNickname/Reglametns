@@ -926,3 +926,31 @@ select.input-field {
   color: #6b7280;
   font-size: 0.9rem;
 }
+
+
+/* Progress details for document analysis */
+.progress-details {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  font-size: 0.85rem;
+}
+
+.elapsed-time {
+  color: #6b7280;
+}
+
+.stuck-warning {
+  color: #dc2626;
+  background: #fee2e2;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
