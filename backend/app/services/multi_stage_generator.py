@@ -1,16 +1,12 @@
 """
 MultiStageGenerator — главный оркестратор многоэтапной генерации.
 Stage 4.4: полный цикл: план → аннотации → разделы → аудит → сборка .docx
-Stage 6.5: инъекция профиля компании в каждый этап.
 """
 
 import json
 import logging
 import os
-from typing import Optional
-from dataclasses import asdict
 from app.database import SessionLocal
-from app.models.company_profile import CompanyProfile
 from app.models.session import GenerationSession
 from app.models.plan import GenerationPlan
 from app.models.section import DocumentSection
@@ -26,86 +22,9 @@ logger = logging.getLogger(__name__)
 GENERATED_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "generated")
 
 
-def _build_profile_context(profile: CompanyProfile) -> Optional[str]:
-    """
-    Строит текстовый контекст из профиля компании для инъекции в промпты этапов.
-
-    Извлекает:
-    - step_templates: типовые шаблоны предложений
-    - vocabulary: словарь терминов (roles, actions, deadlines, methods, conditions, documents)
-    - logic_rules: правила структуры шага
-    - section_patterns: паттерны разделов
-    """
-    if not profile or not profile.profile_json:
-        return None
-
-    try:
-        profile_data = json.loads(profile.profile_json)
-    except (json.JSONDecodeError, TypeError):
-        return None
-
-    if not profile_data:
-        return None
-
-    parts = ["===== ПРОФИЛЬ КОМПАНИИ (для контекста) ====="]
-
-    # Vocabulary
-    vocab = profile_data.get("vocabulary", {})
-    if vocab:
-        roles = vocab.get("roles", {})
-        if roles:
-            roles_list = list(roles.keys()) if isinstance(roles, dict) else roles
-            parts.append(f"Типовые должности: {', '.join(str(r) for r in roles_list[:15])}")
-
-        actions = vocab.get("actions", {})
-        if actions:
-            actions_list = list(actions.keys()) if isinstance(actions, dict) else actions
-            parts.append(f"Типовые действия: {', '.join(str(a) for a in actions_list[:15])}")
-
-        deadlines = vocab.get("deadlines", [])
-        if deadlines:
-            parts.append(f"Типовые сроки: {', '.join(str(d) for d in deadlines[:10])}")
-
-        methods = vocab.get("methods", [])
-        if methods:
-            parts.append(f"Типовые системы/способы: {', '.join(str(m) for m in methods[:10])}")
-
-        conditions = vocab.get("conditions", [])
-        if conditions:
-            parts.append(f"Типовые условия: {', '.join(str(c) for c in conditions[:10])}")
-
-        documents = vocab.get("documents", [])
-        if documents:
-            parts.append(f"Типовые документы: {', '.join(str(d) for d in documents[:10])}")
-
-    # Step templates
-    templates = profile_data.get("step_templates", [])
-    if templates:
-        parts.append(f"\nТиповые шаблоны шагов:")
-        for i, t in enumerate(templates, 1):
-            parts.append(f"  {i}. {t}")
-
-    # Logic rules
-    rules = profile_data.get("logic_rules", {})
-    if rules:
-        parts.append(f"\nПравила логики:")
-        for k, v in rules.items():
-            parts.append(f"  - {k}: {v}")
-
-    # Section patterns
-    patterns = profile_data.get("section_patterns", {})
-    if patterns:
-        parts.append(f"\nПаттерны разделов:")
-        for k, v in list(patterns.items())[:8]:
-            parts.append(f"  - {k}: {v}")
-
-    return "\n".join(parts)
-
-
 async def run_multi_stage_generation(
     generation_session_id: str,
     provider: BaseLLMProvider,
-    company_profile_id: Optional[str] = None,
 ):
     """Запустить полный цикл multi-stage генерации."""
     db = SessionLocal()
@@ -117,32 +36,7 @@ async def run_multi_stage_generation(
             logger.error("Session %s not found", generation_session_id)
             return
 
-        # Загружаем профиль компании, если указан
-        company_profile = None
         profile_context = None
-        if company_profile_id:
-            company_profile = (
-                db.query(CompanyProfile)
-                .filter(CompanyProfile.id == company_profile_id)
-                .first()
-            )
-            if company_profile:
-                profile_context = _build_profile_context(company_profile)
-                if profile_context:
-                    logger.info(
-                        "Loaded company profile '%s' for multi-stage generation",
-                        company_profile.name,
-                    )
-                else:
-                    logger.warning(
-                        "Company profile %s has empty profile_json",
-                        company_profile_id,
-                    )
-            else:
-                logger.warning(
-                    "Company profile %s not found, continuing without profile",
-                    company_profile_id,
-                )
 
         # === Этап 1: План ===
         generation_session.status = "planning"

@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import type { ProviderInfo } from '../types';
-import ProfileSelector from './ProfileSelector';
 
 interface GeneratorFormProps {
   providers: ProviderInfo[];
   disabled: boolean;
-  onStartGeneration: (topic: string, provider: string, isMulti: boolean, companyProfileId?: string) => Promise<void>;
+  onStartGeneration: (topic: string, provider: string, isMulti: boolean) => Promise<void>;
   onCancelGeneration: () => void;
 }
 
@@ -19,7 +18,6 @@ export default function GeneratorForm({
 }: GeneratorFormProps) {
   const [topic, setTopic] = useState('');
   const [provider, setProvider] = useState('auto');
-  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [validationError, setValidationError] = useState('');
 
@@ -56,7 +54,7 @@ export default function GeneratorForm({
     setValidationError('');
 
     try {
-      await onStartGeneration(topicTrimmed, provider, isMulti, selectedProfileId ?? undefined);
+      await onStartGeneration(topicTrimmed, provider, isMulti);
     } catch (err) {
       setValidationError(err instanceof Error ? err.message : 'Ошибка генерации');
     } finally {
@@ -110,12 +108,6 @@ export default function GeneratorForm({
           ))}
         </select>
       </div>
-
-      <ProfileSelector
-        selectedProfileId={selectedProfileId}
-        onChange={setSelectedProfileId}
-        disabled={isGenerating || disabled}
-      />
 
       {validationError && (
         <div className="error-message">{validationError}</div>

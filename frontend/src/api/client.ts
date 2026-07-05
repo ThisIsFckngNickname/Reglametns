@@ -2,7 +2,7 @@
 // API Client — все вызовы к backend
 // ============================================================
 
-import type { GenerationStatus, DocumentInfo, ProviderInfo, CompanyProfile, ParagraphAnalysis } from '../types';
+import type { GenerationStatus, DocumentInfo, ProviderInfo, UploadResponse, AnalyzeResponse, DocumentAnalysis } from '../types';
 
 const API_BASE = '/api';
 
@@ -26,12 +26,8 @@ export class ApiError extends Error {
 export async function startGeneration(
   topic: string,
   provider?: string,
-  companyProfileId?: string
 ): Promise<{ generation_id: string; status: string }> {
   const body: Record<string, string> = { topic, provider: provider ?? 'auto' };
-  if (companyProfileId) {
-    body.company_profile_id = companyProfileId;
-  }
   const res = await fetch(`${API_BASE}/generate/multi`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -171,27 +167,19 @@ export async function pollGenerationStatus(
 }
 
 // ============================================================
-// Stage 6.6 — Company Profile API
+// Stage 7 — Document Analysis API
 // ============================================================
 
 /**
- * Загрузка документов для создания профиля компании.
- * POST /api/company-profiles/upload
+ * Загрузка .docx файла для анализа.
+ * POST /api/documents/upload
  */
-export async function uploadCompanyDocs(
-  name: string,
-  files: File[],
-  description?: string
-): Promise<{ profile_id: string; name: string; document_count: number; status: string }> {
+export async function uploadDocument(
+  file: File
+): Promise<UploadResponse> {
   const formData = new FormData();
-  formData.append('name', name);
-  for (const f of files) {
-    formData.append('files', f);
-  }
-  if (description) {
-    formData.append('description', description);
-  }
-  const res = await fetch(`${API_BASE}/company-profiles/upload`, {
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE}/documents/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -203,13 +191,13 @@ export async function uploadCompanyDocs(
 }
 
 /**
- * Запуск анализа профиля компании.
- * POST /api/company-profiles/{id}/analyze
+ * Запуск анализа документа (background).
+ * POST /api/documents/{id}/analyze
  */
-export async function analyzeProfile(
-  profileId: string
-): Promise<{ profile_id: string; status: string; estimated_seconds: number }> {
-  const res = await fetch(`${API_BASE}/company-profiles/${profileId}/analyze`, {
+export async function analyzeDocument(
+  id: string
+): Promise<AnalyzeResponse> {
+  const res = await fetch(`${API_BASE}/documents/${id}/analyze`, {
     method: 'POST',
   });
   if (!res.ok) {
@@ -220,11 +208,13 @@ export async function analyzeProfile(
 }
 
 /**
- * Получение профиля компании с документами и статистикой.
- * GET /api/company-profiles/{id}
+ * Получение статуса и результатов анализа.
+ * GET /api/documents/{id}
  */
-export async function getProfile(profileId: string): Promise<CompanyProfile> {
-  const res = await fetch(`${API_BASE}/company-profiles/${profileId}`);
+export async function getDocumentAnalysis(
+  id: string
+): Promise<DocumentAnalysis> {
+  const res = await fetch(`${API_BASE}/documents/${id}`);
   if (!res.ok) {
     const errBody = await res.json().catch(() => null);
     throw new ApiError(res.status, errBody?.detail || (await res.text()));
@@ -233,68 +223,17 @@ export async function getProfile(profileId: string): Promise<CompanyProfile> {
 }
 
 /**
- * Получение параграфов с анализом для профиля.
- * GET /api/company-profiles/{id}/paragraphs
+ * Список всех документов с анализом.
+ * GET /api/documents
  */
-export async function getProfileParagraphs(
-  profileId: string,
-  params?: { section?: string; document_id?: string; limit?: number; offset?: number }
-): Promise<{ items: ParagraphAnalysis[]; total: number }> {
-  const query = new URLSearchParams();
-  if (params?.section) query.set('section', params.section);
-  if (params?.document_id) query.set('document_id', params.document_id);
-  if (params?.limit !== undefined) query.set('limit', String(params.limit));
-  if (params?.offset !== undefined) query.set('offset', String(params.offset));
-  const qs = query.toString();
-  const url = `${API_BASE}/company-profiles/${profileId}/paragraphs${qs ? '?' + qs : ''}`;
-  const res = await fetch(url);
+export async function listDocumentAnalyses(): Promise<DocumentAnalysis[]> {
+  const res = await fetch(`${API_BASE}/documents`);
   if (!res.ok) {
-    const errBody = await res.json().catch(() => null);
-    throw new ApiError(res.status, errBody?.detail || (await res.text()));
+    throw new ApiError(res.status, await res.text());
   }
-  return res.json();
-}
-
-/**
- * Список профилей компании.
- * GET /api/company-profiles
- */
-export async function listProfiles(
-  params?: { status?: string; profile_type?: string; limit?: number; offset?: number }
-): Promise<{ items: CompanyProfile[]; total: number }> {
-  const query = new URLSearchParams();
-  if (params?.status) query.set('status', params.status);
-  if (params?.profile_type) query.set('profile_type', params.profile_type);
-  if (params?.limit !== undefined) query.set('limit', String(params.limit));
-  if (params?.offset !== undefined) query.set('offset', String(params.offset));
-  const qs = query.toString();
-  const url = `${API_BASE}/company-profiles${qs ? '?' + qs : ''}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    const errBody = await res.json().catch(() => null);
-    throw new ApiError(res.status, errBody?.detail || (await res.text()));
+  const data = await res.json();
+  if (data && Array.isArray(data.documents)) {
+    return data.documents;
   }
-  return res.json();
-}
-
-/**
- * Удаление профиля компании.
- * DELETE /api/company-profiles/{id}
- */
-export async function deleteProfile(profileId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/company-profiles/${profileId}`, {
-    method: 'DELETE',
-  });
-  if (!res.ok) {
-    const errBody = await res.json().catch(() => null);
-    throw new ApiError(res.status, errBody?.detail || (await res.text()));
-  }
-}
-
-/**
- * Получение URL для скачивания документа из профиля.
- * GET /api/company-profiles/{id}/download/{doc_id}
- */
-export function getProfileDownloadUrl(profileId: string, docId: string): string {
-  return `${API_BASE}/company-profiles/${profileId}/download/${docId}`;
+  return [];
 }

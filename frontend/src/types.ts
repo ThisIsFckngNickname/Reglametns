@@ -117,72 +117,38 @@ export function formatProviderName(providerId: string): string {
 }
 
 // ============================================================
-// Stage 6.6 — Company Profile
+// Stage 7 — Document Analysis (replaces Company Profile)
 // ============================================================
 
-export interface Step {
-  role: string | null;
-  action: string | null;
-  deadline: string | null;
-  method: string | null;
-  condition: string | null;
-  document: string | null;
-  consequence: string | null;
-}
+/** Статус анализа документа */
+export type AnalysisStatus = 'uploaded' | 'extracting' | 'analyzing' | 'ready' | 'failed';
 
-export interface ParagraphAnalysis {
+/** Ответ от POST /api/documents/upload */
+export interface UploadResponse {
   id: string;
-  paragraph_index: number;
-  section_title: string | null;
-  original_text: string;
-  char_count: number;
-  is_table_row: boolean;
-  is_list_item: boolean;
-  steps: Step[];
+  original_filename: string;
+  status: AnalysisStatus;
+  message: string;
 }
 
-export interface AnalysisStats {
-  // Live progress fields (present during analysis)
-  phase?: 'extracting' | 'analyzing' | 'synthesizing' | 'ready' | 'failed';
-  batch?: number;
-  total_batches?: number;
-  paragraphs_processed?: number;
-  total_paragraphs?: number;
-  last_batch_at?: string;
-  detail?: string;
-  error_message?: string;
-
-  // Statistics fields (present after completion)
-  total_steps?: number;
-  paragraphs_with_role_pct?: number;
-  paragraphs_with_deadline_pct?: number;
-  paragraphs_with_method_pct?: number;
-  paragraphs_with_condition_pct?: number;
-  paragraphs_with_document_pct?: number;
-  paragraphs_with_consequence_pct?: number;
-  avg_steps_per_paragraph?: number;
+/** Ответ от POST /api/documents/{id}/analyze */
+export interface AnalyzeResponse {
+  id: string;
+  status: string;
+  message: string;
 }
 
-export interface CompanyProfile {
-  profile_id: string;
-  name: string;
-  description?: string;
-  profile_type: string;
-  document_count: number;
-  status: 'uploaded' | 'extracting' | 'analyzing' | 'synthesizing' | 'ready' | 'failed';
-  progress_pct: number;
-  profile_json?: unknown;
-  analysis_stats?: AnalysisStats;
-  documents: UploadedDocItem[];
+/** Ответ от GET /api/documents/{id} и элемент списка */
+export interface DocumentAnalysis {
+  id: string;
+  original_filename: string;
+  file_size: number;
+  status: AnalysisStatus;
+  total_paragraphs: number;
+  total_steps: number;
+  insights?: Record<string, unknown> | null;
+  stats?: Record<string, unknown> | null;
+  error_message?: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export interface UploadedDocItem {
-  id: string;
-  original_name: string;
-  file_size: number;
-  paragraph_count: number;
-  step_count: number;
-  status: string;
 }

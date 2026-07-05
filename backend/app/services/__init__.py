@@ -7,12 +7,7 @@ from app.services.paragraph_analyzer import (
     compute_stats,
     fallback_extract,
 )
-from app.services.profile_synthesizer import (
-    synthesize_profile,
-    ParagraphLogicProfile,
-    statistical_fallback,
-    validate_profile,
-)
+from app.services.insight_generator import generate_insights, DocumentInsights
 from app.services.pipeline_memory import MemoryStore, store_pipeline_result
 
 __all__ = [
@@ -24,10 +19,8 @@ __all__ = [
     "AnalysisResult",
     "compute_stats",
     "fallback_extract",
-    "synthesize_profile",
-    "ParagraphLogicProfile",
-    "statistical_fallback",
-    "validate_profile",
+    "generate_insights",
+    "DocumentInsights",
     "MemoryStore",
     "store_pipeline_result",
 ]

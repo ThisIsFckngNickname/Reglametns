@@ -12,9 +12,9 @@ import GeneratorForm from './components/GeneratorForm';
 import ProgressPanel from './components/ProgressPanel';
 import ResultPanel from './components/ResultPanel';
 import HistoryList from './components/HistoryList';
-import CompanyProfilePanel from './components/CompanyProfilePanel';
+import DocumentAnalysisPanel from './components/DocumentAnalysisPanel';
 
-type TabName = 'generate' | 'profiles' | 'history';
+type TabName = 'generate' | 'documents' | 'history';
 
 function App() {
   // --- Состояние ---
@@ -44,7 +44,7 @@ function App() {
   }, []);
 
   // --- Обработчик запуска генерации ---
-  const handleStartGeneration = async (topic: string, provider: string, isMulti: boolean, companyProfileId?: string) => {
+  const handleStartGeneration = async (topic: string, provider: string, isMulti: boolean) => {
     // Отмена предыдущего polling если был
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -70,7 +70,7 @@ function App() {
     try {
       if (isMulti) {
         // Multi-stage: POST /api/generate/multi + polling
-        const { generation_id } = await startGeneration(topic, provider, companyProfileId);
+        const { generation_id } = await startGeneration(topic, provider);
 
         // Создаём AbortController для этого polling-цикла
         const abortController = new AbortController();
@@ -215,10 +215,10 @@ function App() {
         </button>
         <button
           type="button"
-          className={`tab-button${activeTab === 'profiles' ? ' tab-active' : ''}`}
-          onClick={() => setActiveTab('profiles')}
+          className={`tab-button${activeTab === 'documents' ? ' tab-active' : ''}`}
+          onClick={() => setActiveTab('documents')}
         >
-          Профили компании
+          Анализ документов
         </button>
         <button
           type="button"
@@ -294,7 +294,7 @@ function App() {
           </>
         )}
 
-        {activeTab === 'profiles' && <CompanyProfilePanel />}
+        {activeTab === 'documents' && <DocumentAnalysisPanel />}
 
         {activeTab === 'history' && (
           <HistoryList

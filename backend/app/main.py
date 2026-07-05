@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
 from app.api.routes import router
-from app.api.company_profile_routes import router as company_profile_router
+from app.api.document_analysis_routes import router as document_analysis_router
 from app.models.session import GenerationSession
 from app.models.plan import GenerationPlan
 from app.models.section import DocumentSection
@@ -73,7 +73,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
-app.include_router(company_profile_router)
+app.include_router(document_analysis_router)
 
 
 @app.get("/", tags=["health"])

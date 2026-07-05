@@ -2,13 +2,11 @@
 API маршруты (endpoints).
 
 Stage 2: все провайдеры, auto-select, fallback.
-Stage 6.5: company_profile_id для multi-stage генерации.
 """
 
 import asyncio
 import logging
 import os
-from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -36,7 +34,7 @@ from app.providers.selector import ProviderSelector
 
 
 class MultiStageRequest(BaseModel):
-    """Запрос на multi-stage генерацию с опциональным профилем компании."""
+    """Запрос на multi-stage генерацию."""
 
     topic: str = Field(
         ...,
@@ -47,10 +45,6 @@ class MultiStageRequest(BaseModel):
     provider: str = Field(
         default="auto",
         description="Выбор AI-провайдера: auto, groq, ollama, yandexgpt",
-    )
-    company_profile_id: Optional[str] = Field(
-        default=None,
-        description="ID профиля компании для инъекции контекста",
     )
 
 logger = logging.getLogger(__name__)
@@ -140,7 +134,6 @@ async def start_multi_stage_generation(
         run_multi_stage_generation(
             session.id,
             provider,
-            company_profile_id=request.company_profile_id,
         )
     )
 
