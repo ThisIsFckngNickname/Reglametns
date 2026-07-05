@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import type { GenerationStatus } from '../types';
 import { formatProviderName } from '../types';
 import { getDocumentDownloadUrl } from '../api/client';
@@ -9,16 +9,16 @@ interface ResultPanelProps {
 }
 
 function formatDuration(createdAt: string, completedAt?: string | null): string {
-  if (!createdAt) return '—';
+  if (!createdAt) return '�';
   const start = new Date(createdAt).getTime();
   const end = completedAt ? new Date(completedAt).getTime() : Date.now();
   const totalSeconds = Math.max(0, Math.floor((end - start) / 1000));
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
   if (m > 0) {
-    return `${m} мин ${s} сек`;
+    return `${m} ��� ${s} ���`;
   }
-  return `${s} сек`;
+  return `${s} ���`;
 }
 
 export default function ResultPanel({
@@ -29,25 +29,25 @@ export default function ResultPanel({
 
   return (
     <div className="card result-panel">
-      <h2>✅ Регламент успешно создан!</h2>
+      <h2>? ��������� ������� ������!</h2>
 
       <div className="result-details">
         <div className="result-row">
-          <span className="result-label">📄 Тема:</span>
+          <span className="result-label">?? ����:</span>
           <span className="result-value">{status.topic}</span>
         </div>
         <div className="result-row">
-          <span className="result-label">⚙ Провайдер:</span>
+          <span className="result-label">? ���������:</span>
           <span className="result-value">
             {formatProviderName(status.provider_used || '')}
           </span>
         </div>
         <div className="result-row">
-          <span className="result-label">📊 Разделов:</span>
+          <span className="result-label">?? ��������:</span>
           <span className="result-value">{status.total_sections}</span>
         </div>
         <div className="result-row">
-          <span className="result-label">⏱ Время:</span>
+          <span className="result-label">? �����:</span>
           <span className="result-value">
             {formatDuration(status.created_at, status.completed_at)}
           </span>
@@ -61,11 +61,11 @@ export default function ResultPanel({
             className="btn btn-primary"
             download
           >
-            ⬇ Скачать .docx
+            ? ������� .docx
           </a>
         ) : (
           <div className="error-message">
-            Ошибка: ID документа не получен
+            ������: ID ��������� �� �������
           </div>
         )}
 
@@ -74,7 +74,7 @@ export default function ResultPanel({
           className="btn btn-secondary"
           onClick={onGenerateNew}
         >
-          ➕ Создать ещё регламент
+          ? ������� ��� ���������
         </button>
       </div>
     </div>

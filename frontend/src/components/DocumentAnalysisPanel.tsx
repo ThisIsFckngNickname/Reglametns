@@ -12,14 +12,14 @@ import type { DocumentAnalysis, AnalysisStatus } from '../types';
 const PIPELINE_STAGES: AnalysisStatus[] = ['extracting', 'analyzing', 'synthesizing'];
 
 const STATUS_LABELS: Record<string, string> = {
-  uploaded: 'Р—Р°РіСЂСѓР¶РµРЅ',
-  extracting: 'РР·РІР»РµС‡РµРЅРёРµ РїР°СЂР°РіСЂР°С„РѕРІ',
-  analyzing: 'LLM-Р°РЅР°Р»РёР· С€Р°РіРѕРІ',
-  synthesizing: 'РЎРёРЅС‚РµР· РёРЅСЃР°Р№С‚РѕРІ',
-  ready: 'Р“РѕС‚РѕРІРѕ',
-  failed: 'РћС€РёР±РєР°',
-  cancelled: 'РћС‚РјРµРЅС‘РЅ',
-  cancelling: 'РћС‚РјРµРЅР°...',
+  uploaded: 'Загружен',
+  extracting: 'Извлечение параграфов',
+  analyzing: 'LLM-анализ шагов',
+  synthesizing: 'Синтез инсайтов',
+  ready: 'Готово',
+  failed: 'Ошибка',
+  cancelled: 'Отменён',
+  cancelling: 'Отмена...',
 };
 
 export default function DocumentAnalysisPanel() {
@@ -44,7 +44,7 @@ export default function DocumentAnalysisPanel() {
     loadDocuments();
   }, [loadDocuments]);
 
-  // РџРѕР»Р»РёРЅРі РґРѕРєСѓРјРµРЅС‚РѕРІ РІ РїСЂРѕС†РµСЃСЃРµ Р°РЅР°Р»РёР·Р°
+  // Поллинг документов в процессе анализа
   useEffect(() => {
     if (pollingIds.size === 0) return;
     const interval = setInterval(async () => {
@@ -69,10 +69,10 @@ export default function DocumentAnalysisPanel() {
     return () => clearInterval(interval);
   }, [pollingIds, loadDocuments]);
 
-  // Р—Р°РіСЂСѓР·РєР° С„Р°Р№Р»Р°
+  // Загрузка файла
   const handleFile = async (file: File) => {
     if (!file.name.toLowerCase().endsWith('.docx')) {
-      setError('РўРѕР»СЊРєРѕ .docx С„Р°Р№Р»С‹ РїРѕРґРґРµСЂР¶РёРІР°СЋС‚СЃСЏ');
+      setError('Только .docx файлы поддерживаются');
       return;
     }
     setUploading(true);
@@ -82,7 +82,7 @@ export default function DocumentAnalysisPanel() {
       setPollingIds(prev => new Set(prev).add(result.id));
       await loadDocuments();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё');
+      setError(err instanceof Error ? err.message : 'Ошибка загрузки');
     } finally {
       setUploading(false);
     }
@@ -119,7 +119,7 @@ export default function DocumentAnalysisPanel() {
       setPollingIds(prev => new Set(prev).add(id));
       await loadDocuments();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'РћС€РёР±РєР° Р·Р°РїСѓСЃРєР° Р°РЅР°Р»РёР·Р°');
+      setError(err instanceof Error ? err.message : 'Ошибка запуска анализа');
     }
   };
 
@@ -134,11 +134,11 @@ export default function DocumentAnalysisPanel() {
       });
       await loadDocuments();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'РћС€РёР±РєР° РѕС‚РјРµРЅС‹');
+      setError(err instanceof Error ? err.message : 'Ошибка отмены');
     }
   };
 
-  // РћРїСЂРµРґРµР»РµРЅРёРµ Р°РєС‚РёРІРЅРѕР№ СЃС‚Р°РґРёРё РїР°Р№РїР»Р°Р№РЅР° РґР»СЏ РґРѕРєСѓРјРµРЅС‚Р°
+  // Определение активной стадии пайплайна для документа
   const getActiveStageIndex = (status: string): number => {
     if (status === 'extracting') return 0;
     if (status === 'analyzing') return 1;
@@ -150,17 +150,17 @@ export default function DocumentAnalysisPanel() {
     const start = new Date(createdAt).getTime();
     const now = Date.now();
     const elapsed = Math.floor((now - start) / 1000);
-    if (elapsed < 60) return `${elapsed} сек`;
+    if (elapsed < 60) return `${elapsed} ���`;
     const min = Math.floor(elapsed / 60);
     const sec = elapsed % 60;
-    return `${min} мин ${sec} сек`;
+    return `${min} ��� ${sec} ���`;
   };
 
   const getStuckWarning = (updatedAt: string): string | null => {
     const updated = new Date(updatedAt).getTime();
     const now = Date.now();
     const elapsed = Math.floor((now - updated) / 1000);
-    if (elapsed > 30) return `⚠ Нет обновлений ${elapsed} сек — возможно зависло`;
+    if (elapsed > 30) return `? ��� ���������� ${elapsed} ��� � �������� �������`;
     return null;
   };
 
@@ -169,13 +169,13 @@ export default function DocumentAnalysisPanel() {
 
   return (
     <div className="document-analysis-panel">
-      <h2>РђРЅР°Р»РёР· РґРѕРєСѓРјРµРЅС‚РѕРІ</h2>
+      <h2>Анализ документов</h2>
       <p className="hint">
-        Р—Р°РіСЂСѓР·РёС‚Рµ .docx С„Р°Р№Р» СЂРµРіР»Р°РјРµРЅС‚Р°. РЎРёСЃС‚РµРјР° РёР·РІР»РµС‡С‘С‚ РїР°СЂР°РіСЂР°С„С‹, РїСЂРѕР°РЅР°Р»РёР·РёСЂСѓРµС‚ РёС… С‡РµСЂРµР· LLM
-        Рё СЃС„РѕСЂРјРёСЂСѓРµС‚ РёРЅСЃР°Р№С‚С‹ РґР»СЏ СѓР»СѓС‡С€РµРЅРёСЏ РєР°С‡РµСЃС‚РІР° РіРµРЅРµСЂР°С†РёРё.
+        Загрузите .docx файл регламента. Система извлечёт параграфы, проанализирует их через LLM
+        и сформирует инсайты для улучшения качества генерации.
       </p>
 
-      {/* Drag & Drop Р·РѕРЅР° */}
+      {/* Drag & Drop зона */}
       <div
         className={`upload-zone ${dragOver ? 'drag-over' : ''} ${uploading ? 'uploading' : ''}`}
         onDragOver={handleDragOver}
@@ -194,25 +194,25 @@ export default function DocumentAnalysisPanel() {
         {uploading ? (
           <div className="upload-zone-content">
             <span className="upload-spinner" />
-            <p>Р—Р°РіСЂСѓР·РєР°...</p>
+            <p>Загрузка...</p>
           </div>
         ) : (
           <div className="upload-zone-content">
-            <span className="upload-icon">рџ“„</span>
+            <span className="upload-icon">📄</span>
             <p className="upload-text">
-              <strong>РќР°Р¶РјРёС‚Рµ РґР»СЏ РІС‹Р±РѕСЂР°</strong> РёР»Рё РїРµСЂРµС‚Р°С‰РёС‚Рµ .docx С„Р°Р№Р» СЃСЋРґР°
+              <strong>Нажмите для выбора</strong> или перетащите .docx файл сюда
             </p>
-            <p className="upload-hint">РџРѕРґРґРµСЂР¶РёРІР°СЋС‚СЃСЏ С‚РѕР»СЊРєРѕ С„Р°Р№Р»С‹ .docx</p>
+            <p className="upload-hint">Поддерживаются только файлы .docx</p>
           </div>
         )}
       </div>
 
       {error && <div className="error-message">{error}</div>}
 
-      {/* РЎРїРёСЃРѕРє РґРѕРєСѓРјРµРЅС‚РѕРІ */}
+      {/* Список документов */}
       <div className="documents-list">
         {documents.length === 0 && !uploading && (
-          <p className="empty-state">РќРµС‚ Р·Р°РіСЂСѓР¶РµРЅРЅС‹С… РґРѕРєСѓРјРµРЅС‚РѕРІ</p>
+          <p className="empty-state">Нет загруженных документов</p>
         )}
 
         {documents.map((doc) => {
@@ -229,7 +229,7 @@ export default function DocumentAnalysisPanel() {
                 </span>
               </div>
 
-              {/* Pipeline stages вЂ” РїРѕРєР°Р·С‹РІР°РµРј С‚РѕР»СЊРєРѕ РєРѕРіРґР° РІ РїСЂРѕС†РµСЃСЃРµ РёР»Рё РіРѕС‚РѕРІ/РѕС€РёР±РєР° */}
+              {/* Pipeline stages — показываем только когда в процессе или готов/ошибка */}
               {(inProgress || doc.status === 'ready' || doc.status === 'failed' || doc.status === 'cancelled') && (
                 <div className="pipeline-stages">
                   {PIPELINE_STAGES.map((stage, idx) => {
@@ -243,16 +243,16 @@ export default function DocumentAnalysisPanel() {
                         className={`pipeline-stage ${isActive ? 'active' : ''} ${isComplete ? 'complete' : ''} ${isPending ? 'pending' : ''}`}
                       >
                         <div className="stage-indicator">
-                          {isComplete ? 'вњ“' : isActive ? 'в—Џ' : 'в—‹'}
+                          {isComplete ? '✓' : isActive ? '●' : '○'}
                         </div>
                         <div className="stage-info">
                           <span className="stage-name">{STATUS_LABELS[stage]}</span>
                           {isActive && (
                             <span className="stage-progress">
                               {stage === 'extracting' && stats?.paragraphs_processed
-                                ? `(${stats.paragraphs_processed} РїР°СЂР°РіСЂР°С„РѕРІ)`
+                                ? `(${stats.paragraphs_processed} параграфов)`
                                 : stage === 'analyzing' && stats?.total_steps
-                                  ? `(${stats.total_steps} С€Р°РіРѕРІ)`
+                                  ? `(${stats.total_steps} шагов)`
                                   : '...'}
                             </span>
                           )}
@@ -263,11 +263,11 @@ export default function DocumentAnalysisPanel() {
                   })}
                   <div className={`pipeline-stage ${doc.status === 'ready' ? 'complete' : doc.status === 'failed' ? 'failed' : 'pending'}`}>
                     <div className="stage-indicator">
-                      {doc.status === 'ready' ? 'вњ“' : doc.status === 'failed' ? 'вњ—' : 'в—‹'}
+                      {doc.status === 'ready' ? '✓' : doc.status === 'failed' ? '✗' : '○'}
                     </div>
                     <div className="stage-info">
                       <span className="stage-name">
-                        {doc.status === 'ready' ? 'Р“РѕС‚РѕРІРѕ' : doc.status === 'failed' ? 'РћС€РёР±РєР°' : 'Р—Р°РІРµСЂС€РµРЅРёРµ'}
+                        {doc.status === 'ready' ? 'Готово' : doc.status === 'failed' ? 'Ошибка' : 'Завершение'}
                       </span>
                     </div>
                   </div>
@@ -276,21 +276,21 @@ export default function DocumentAnalysisPanel() {
 
               {inProgress && (
                 <div className="progress-details">
-                  <span className="elapsed-time">⏱ {getElapsedTime(doc.created_at)}</span>
+                  <span className="elapsed-time">? {getElapsedTime(doc.created_at)}</span>
                   {getStuckWarning(doc.updated_at) && (
                     <span className="stuck-warning">{getStuckWarning(doc.updated_at)}</span>
                   )}
                 </div>
               )}
 
-              {/* Р”РµР№СЃС‚РІРёСЏ */}
+              {/* Действия */}
               <div className="document-actions">
                 {doc.status === 'uploaded' && (
                   <button
                     className="btn btn-primary btn-small"
                     onClick={() => handleAnalyze(doc.id)}
                   >
-                    рџ”Ќ Р—Р°РїСѓСЃС‚РёС‚СЊ Р°РЅР°Р»РёР·
+                    🔍 Запустить анализ
                   </button>
                 )}
                 {inProgress && (
@@ -298,32 +298,32 @@ export default function DocumentAnalysisPanel() {
                     className="btn btn-cancel btn-small"
                     onClick={() => handleCancel(doc.id)}
                   >
-                    вњ• РћС‚РјРµРЅРёС‚СЊ
+                    ✕ Отменить
                   </button>
                 )}
                 {doc.status === 'cancelled' && (
-                  <span className="cancelled-text">вЏ№ РђРЅР°Р»РёР· РѕС‚РјРµРЅС‘РЅ</span>
+                  <span className="cancelled-text">⏹ Анализ отменён</span>
                 )}
                 {(doc.status === 'ready' || doc.status === 'failed') && (
                   <button
                     className="btn btn-small"
                     onClick={() => setExpandedId(expandedId === doc.id ? null : doc.id)}
                   >
-                    {expandedId === doc.id ? 'в–ј РЎРєСЂС‹С‚СЊ' : 'в–¶ Р РµР·СѓР»СЊС‚Р°С‚С‹'}
+                    {expandedId === doc.id ? '▼ Скрыть' : '▶ Результаты'}
                   </button>
                 )}
               </div>
 
-              {/* Р РµР·СѓР»СЊС‚Р°С‚С‹ РґР»СЏ ready/failed */}
+              {/* Результаты для ready/failed */}
               {expandedId === doc.id && doc.status === 'ready' && doc.insights && (
                 <div className="document-insights">
                   <div className="insight-section">
-                    <h4>рџ“Љ РЎС‚Р°С‚РёСЃС‚РёРєР°</h4>
-                    <p>РџР°СЂР°РіСЂР°С„РѕРІ: {doc.total_paragraphs} | РЁР°РіРѕРІ: {doc.total_steps}</p>
+                    <h4>📊 Статистика</h4>
+                    <p>Параграфов: {doc.total_paragraphs} | Шагов: {doc.total_steps}</p>
                   </div>
                   {doc.insights.step_templates && Array.isArray(doc.insights.step_templates) && (
                     <div className="insight-section">
-                      <h4>рџ“ќ РЁР°Р±Р»РѕРЅС‹ РїСЂРµРґР»РѕР¶РµРЅРёР№</h4>
+                      <h4>📝 Шаблоны предложений</h4>
                       <ul>
                         {doc.insights.step_templates.map((tpl: string, i: number) => (
                           <li key={i}><code>{tpl}</code></li>
@@ -333,7 +333,7 @@ export default function DocumentAnalysisPanel() {
                   )}
                   {doc.insights.vocabulary && typeof doc.insights.vocabulary === 'object' && (
                     <div className="insight-section">
-                      <h4>рџ“– РЎР»РѕРІР°СЂСЊ С‚РµСЂРјРёРЅРѕРІ</h4>
+                      <h4>📖 Словарь терминов</h4>
                       <div className="vocabulary-grid">
                         {Object.entries(doc.insights.vocabulary as Record<string, unknown>).map(([category, items]) => (
                           <div key={category} className="vocab-category">
@@ -352,7 +352,7 @@ export default function DocumentAnalysisPanel() {
                   )}
                   {doc.insights.logic_rules && typeof doc.insights.logic_rules === 'object' && (
                     <div className="insight-section">
-                      <h4>вљ™пёЏ РџСЂР°РІРёР»Р° Р»РѕРіРёРєРё</h4>
+                      <h4>⚙️ Правила логики</h4>
                       <pre>{JSON.stringify(doc.insights.logic_rules, null, 2)}</pre>
                     </div>
                   )}
@@ -361,8 +361,8 @@ export default function DocumentAnalysisPanel() {
               {expandedId === doc.id && doc.status === 'failed' && (
                 <div className="document-insights">
                   <div className="insight-section">
-                    <h4>вќЊ РћС€РёР±РєР°</h4>
-                    <p className="error-text">{doc.error_message || 'РќРµРёР·РІРµСЃС‚РЅР°СЏ РѕС€РёР±РєР°'}</p>
+                    <h4>❌ Ошибка</h4>
+                    <p className="error-text">{doc.error_message || 'Неизвестная ошибка'}</p>
                   </div>
                 </div>
               )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import type { ProviderInfo, DocumentAnalysis } from '../types';
 import { listDocumentAnalyses } from '../api/client';
 
@@ -31,7 +31,7 @@ export default function GeneratorForm({
         setAnalyzedDocs(readyDocs);
       })
       .catch(() => {
-        // non-critical — no docs to load
+        // non-critical � no docs to load
       });
   }, []);
 
@@ -47,11 +47,11 @@ export default function GeneratorForm({
   const handleGenerate = async (isMulti: boolean) => {
     // Validation
     if (isTopicEmpty) {
-      setValidationError('Введите тему регламента');
+      setValidationError('������� ���� ����������');
       return;
     }
     if (isTopicTooLong) {
-      setValidationError(`Тема слишком длинная (макс. ${MAX_TOPIC_LENGTH} символов)`);
+      setValidationError(`���� ������� ������� (����. ${MAX_TOPIC_LENGTH} ��������)`);
       return;
     }
 
@@ -59,7 +59,7 @@ export default function GeneratorForm({
     if (!isMulti) {
       const selectedProvider = providers.find(p => p.id === provider);
       if (selectedProvider && !selectedProvider.available) {
-        setValidationError('Выбранный провайдер недоступен');
+        setValidationError('��������� ��������� ����������');
         return;
       }
     }
@@ -72,7 +72,7 @@ export default function GeneratorForm({
       const docId = isMulti ? (selectedDocumentId || undefined) : undefined;
       await onStartGeneration(topicTrimmed, provider, isMulti, docId);
     } catch (err) {
-      setValidationError(err instanceof Error ? err.message : 'Ошибка генерации');
+      setValidationError(err instanceof Error ? err.message : '������ ���������');
     } finally {
       setIsGenerating(false);
     }
@@ -85,16 +85,16 @@ export default function GeneratorForm({
 
   return (
     <div className="card generator-form">
-      <h2>Создание регламента</h2>
+      <h2>�������� ����������</h2>
 
       <div className="form-group">
-        <label htmlFor="topic-input">Тема регламента</label>
+        <label htmlFor="topic-input">���� ����������</label>
         <input
           id="topic-input"
           type="text"
           value={topic}
           onChange={handleTopicChange}
-          placeholder="Введите тему регламента (например, Регламент по учёту ГСМ)"
+          placeholder="������� ���� ���������� (��������, ��������� �� ����� ���)"
           disabled={isGenerating || disabled}
           className="input-field"
           maxLength={MAX_TOPIC_LENGTH + 100}
@@ -109,7 +109,7 @@ export default function GeneratorForm({
       </div>
 
       <div className="form-group">
-        <label htmlFor="provider-select">Провайдер</label>
+        <label htmlFor="provider-select">���������</label>
         <select
           id="provider-select"
           value={provider}
@@ -119,7 +119,7 @@ export default function GeneratorForm({
         >
           {providers.map((p) => (
             <option key={p.id} value={p.id} disabled={!p.available}>
-              {p.name}{!p.available ? ' (недоступен)' : ''}
+              {p.name}{!p.available ? ' (����������)' : ''}
             </option>
           ))}
         </select>
@@ -127,7 +127,7 @@ export default function GeneratorForm({
 
       {analyzedDocs.length > 0 && (
         <div className="form-group">
-          <label htmlFor="document-select">Контекст из анализа документа</label>
+          <label htmlFor="document-select">�������� �� ������� ���������</label>
           <select
             id="document-select"
             value={selectedDocumentId}
@@ -135,10 +135,10 @@ export default function GeneratorForm({
             disabled={isGenerating || disabled}
             className="input-field"
           >
-            <option value="">Без контекста</option>
+            <option value="">��� ���������</option>
             {analyzedDocs.map((doc) => (
               <option key={doc.id} value={doc.id}>
-                {doc.original_filename} ({doc.total_paragraphs} параграфов, {doc.total_steps} шагов)
+                {doc.original_filename} ({doc.total_paragraphs} ����������, {doc.total_steps} �����)
               </option>
             ))}
           </select>
@@ -156,7 +156,7 @@ export default function GeneratorForm({
             className="btn btn-cancel"
             onClick={handleCancel}
           >
-            ✕ Отмена
+            ? ������
           </button>
         ) : (
           <>
@@ -174,7 +174,7 @@ export default function GeneratorForm({
               onClick={() => handleGenerate(true)}
               disabled={isTopicEmpty}
             >
-              🚀 Generate multi-stage (рекомендуется)
+              ?? Generate multi-stage (�������������)
             </button>
           </>
         )}
@@ -183,13 +183,13 @@ export default function GeneratorForm({
       {isGenerating && (
         <div className="generating-indicator">
           <span className="spinner" />
-          Генерация...
+          ���������...
         </div>
       )}
 
       {!isGenerating && !disabled && (
         <p className="form-note">
-          Рекомендуется для сложных регламентов
+          ������������� ��� ������� �����������
         </p>
       )}
     </div>

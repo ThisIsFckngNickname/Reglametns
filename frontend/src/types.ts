@@ -1,14 +1,14 @@
-// ============================================================
-// Stage 3 — Multi-stage support
+﻿// ============================================================
+// Stage 3 � Multi-stage support
 // ============================================================
 
-/** Полный статус сессии генерации */
+/** ������ ������ ������ ��������� */
 export interface GenerationStatus {
   id: string;
   topic: string;
   status: GenerationStage;
-  current_stage: string;       // Человекочитаемое название этапа
-  stage_progress: number;      // 0–100
+  current_stage: string;       // ���������������� �������� �����
+  stage_progress: number;      // 0�100
   total_sections: number;
   completed_sections: number;
   provider_used?: string;
@@ -16,10 +16,10 @@ export interface GenerationStatus {
   error_message?: string | null;
   created_at: string;          // ISO8601
   updated_at?: string;
-  completed_at?: string | null; // ISO8601, только при status === "completed"
+  completed_at?: string | null; // ISO8601, ������ ��� status === "completed"
 }
 
-/** Возможные статусы этапов генерации */
+/** ��������� ������� ������ ��������� */
 export type GenerationStage =
   | 'accepted'
   | 'planning'
@@ -30,7 +30,7 @@ export type GenerationStage =
   | 'completed'
   | 'failed';
 
-/** Информация о документе для списка истории */
+/** ���������� � ��������� ��� ������ ������� */
 export interface DocumentInfo {
   id: string;
   topic: string;
@@ -39,7 +39,7 @@ export interface DocumentInfo {
   created_at: string;          // ISO8601
 }
 
-/** Информация о доступном AI-провайдере */
+/** ���������� � ��������� AI-���������� */
 export interface ProviderInfo {
   id: string;
   name: string;
@@ -47,35 +47,35 @@ export interface ProviderInfo {
   available: boolean;
 }
 
-/** Конфигурация приложения (состояние) */
+/** ������������ ���������� (���������) */
 export interface AppState {
-  // Текущая генерация
+  // ������� ���������
   currentGeneration: GenerationStatus | null;
-  // Активен ли polling
+  // ������� �� polling
   isPolling: boolean;
-  // История документов
+  // ������� ����������
   history: DocumentInfo[];
-  // Доступные провайдеры
+  // ��������� ����������
   providers: ProviderInfo[];
-  // Глобальная ошибка (не связанная с конкретной генерацией)
+  // ���������� ������ (�� ��������� � ���������� ����������)
   globalError: string | null;
-  // Флаг начальной загрузки
+  // ���� ��������� ��������
   isLoading: boolean;
 }
 
-/** Человекочитаемые названия этапов */
+/** ���������������� �������� ������ */
 export const STAGE_LABELS: Record<string, string> = {
-  accepted: 'Принят в обработку',
-  planning: 'Составление плана',
-  annotating: 'Аннотирование разделов',
-  generating: 'Генерация разделов',
-  auditing: 'Аудит связности',
-  assembling: 'Сборка документа',
-  completed: 'Готово',
-  failed: 'Ошибка',
+  accepted: '������ � ���������',
+  planning: '����������� �����',
+  annotating: '������������� ��������',
+  generating: '��������� ��������',
+  auditing: '����� ���������',
+  assembling: '������ ���������',
+  completed: '������',
+  failed: '������',
 };
 
-/** Цвета этапов для progress bar / label */
+/** ����� ������ ��� progress bar / label */
 export const STAGE_COLORS: Record<string, string> = {
   accepted: '#6b7280',     // gray
   planning: '#3b82f6',     // blue
@@ -87,7 +87,7 @@ export const STAGE_COLORS: Record<string, string> = {
   failed: '#ef4444',       // red
 };
 
-/** Порядок этапов для отображения в чеклисте */
+/** ������� ������ ��� ����������� � �������� */
 export const STAGE_ORDER: GenerationStage[] = [
   'accepted',
   'planning',
@@ -98,13 +98,13 @@ export const STAGE_ORDER: GenerationStage[] = [
   'completed',
 ];
 
-/** Форматирование названия провайдера для отображения */
+/** �������������� �������� ���������� ��� ����������� */
 export function formatProviderName(providerId: string): string {
   switch (providerId) {
     case 'generation':
-      return 'Многоэтапная';
+      return '������������';
     case 'ollama':
-      return 'Ollama (локальный)';
+      return 'Ollama (���������)';
     case 'groq':
       return 'Groq Cloud';
     case 'yandexgpt':
@@ -117,13 +117,13 @@ export function formatProviderName(providerId: string): string {
 }
 
 // ============================================================
-// Stage 7 — Document Analysis (replaces Company Profile)
+// Stage 7 � Document Analysis (replaces Company Profile)
 // ============================================================
 
-/** Статус анализа документа */
+/** ������ ������� ��������� */
 export type AnalysisStatus = 'uploaded' | 'extracting' | 'analyzing' | 'synthesizing' | 'ready' | 'cancelled' | 'cancelling' | 'failed';
 
-/** Ответ от POST /api/documents/upload */
+/** ����� �� POST /api/documents/upload */
 export interface UploadResponse {
   id: string;
   original_filename: string;
@@ -131,14 +131,14 @@ export interface UploadResponse {
   message: string;
 }
 
-/** Ответ от POST /api/documents/{id}/analyze */
+/** ����� �� POST /api/documents/{id}/analyze */
 export interface AnalyzeResponse {
   id: string;
   status: string;
   message: string;
 }
 
-/** Ответ от GET /api/documents/{id} и элемент списка */
+/** ����� �� GET /api/documents/{id} � ������� ������ */
 export interface DocumentAnalysis {
   id: string;
   original_filename: string;

@@ -1,5 +1,5 @@
-// ============================================================
-// API Client — все вызовы к backend
+﻿// ============================================================
+// API Client � ��� ������ � backend
 // ============================================================
 
 import type { GenerationStatus, DocumentInfo, ProviderInfo, UploadResponse, AnalyzeResponse, DocumentAnalysis } from '../types';
@@ -20,7 +20,7 @@ export class ApiError extends Error {
 }
 
 /**
- * Запуск multi-stage генерации.
+ * ������ multi-stage ���������.
  * POST /api/generate/multi
  */
 export async function startGeneration(
@@ -47,7 +47,7 @@ export async function startGeneration(
 }
 
 /**
- * Получение статуса генерации.
+ * ��������� ������� ���������.
  * GET /api/generate/{id}/status
  */
 export async function getGenerationStatus(
@@ -66,7 +66,7 @@ export async function getGenerationStatus(
 }
 
 /**
- * Получение URL для скачивания документа.
+ * ��������� URL ��� ���������� ���������.
  * GET /api/documents/{id}/download
  */
 export function getDocumentDownloadUrl(documentId: string): string {
@@ -74,7 +74,7 @@ export function getDocumentDownloadUrl(documentId: string): string {
 }
 
 /**
- * Список документов (история, до 20 шт).
+ * ������ ���������� (�������, �� 20 ��).
  * GET /api/documents
  */
 export async function listDocuments(): Promise<DocumentInfo[]> {
@@ -94,7 +94,7 @@ export async function listDocuments(): Promise<DocumentInfo[]> {
 }
 
 /**
- * Список доступных провайдеров.
+ * ������ ��������� �����������.
  * GET /api/providers
  */
 export async function listProviders(): Promise<ProviderInfo[]> {
@@ -114,14 +114,14 @@ export async function listProviders(): Promise<ProviderInfo[]> {
 }
 
 /**
- * Polling статуса генерации.
+ * Polling ������� ���������.
  *
- * - Опрашивает /api/generate/{id}/status каждые intervalMs
- * - Вызывает onProgress на каждый успешный ответ
- * - Завершается, когда status === 'completed' или status === 'failed'
- * - При ошибке сети — повторяет попытку (не прерывает polling)
+ * - ���������� /api/generate/{id}/status ������ intervalMs
+ * - �������� onProgress �� ������ �������� �����
+ * - �����������, ����� status === 'completed' ��� status === 'failed'
+ * - ��� ������ ���� � ��������� ������� (�� ��������� polling)
  *
- * @param signal — AbortSignal для отмены (cleanup при размонтировании)
+ * @param signal � AbortSignal ��� ������ (cleanup ��� ���������������)
  */
 export async function pollGenerationStatus(
   generationId: string,
@@ -151,16 +151,16 @@ export async function pollGenerationStatus(
         return status;
       }
 
-      // Продолжить polling
+      // ���������� polling
       await new Promise(resolve => setTimeout(resolve, intervalMs));
       return poll();
     } catch (err) {
-      // Если отмена — не рекурсировать
+      // ���� ������ � �� �������������
       if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) {
         throw err;
       }
 
-      // Сетевая ошибка — подождать и повторить
+      // ������� ������ � ��������� � ���������
       console.warn('Polling error, retrying in 5s:', err);
       await new Promise(resolve => setTimeout(resolve, 5000));
       return poll();
@@ -171,11 +171,11 @@ export async function pollGenerationStatus(
 }
 
 // ============================================================
-// Stage 7 — Document Analysis API
+// Stage 7 � Document Analysis API
 // ============================================================
 
 /**
- * Загрузка .docx файла для анализа.
+ * �������� .docx ����� ��� �������.
  * POST /api/analyses/upload
  */
 export async function uploadDocument(
@@ -195,7 +195,7 @@ export async function uploadDocument(
 }
 
 /**
- * Запуск анализа документа (background).
+ * ������ ������� ��������� (background).
  * POST /api/analyses/{id}/analyze
  */
 export async function analyzeDocument(
@@ -212,7 +212,7 @@ export async function analyzeDocument(
 }
 
 /**
- * Получение статуса и результатов анализа.
+ * ��������� ������� � ����������� �������.
  * GET /api/analyses/{id}
  */
 export async function getDocumentAnalysis(
@@ -227,7 +227,7 @@ export async function getDocumentAnalysis(
 }
 
 /**
- * Список всех документов с анализом.
+ * ������ ���� ���������� � ��������.
  * GET /api/analyses
  */
 export async function listDocumentAnalyses(): Promise<DocumentAnalysis[]> {
@@ -243,7 +243,7 @@ export async function listDocumentAnalyses(): Promise<DocumentAnalysis[]> {
 }
 
 /**
- * Отмена анализа документа.
+ * ������ ������� ���������.
  * POST /api/analyses/{id}/cancel
  */
 export async function cancelAnalysis(id: string): Promise<AnalyzeResponse> {

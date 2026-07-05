@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import type { GenerationStatus, DocumentInfo, ProviderInfo } from './types';
 import {
   startGeneration,
@@ -17,7 +17,7 @@ import DocumentAnalysisPanel from './components/DocumentAnalysisPanel';
 type TabName = 'generate' | 'documents' | 'history';
 
 function App() {
-  // --- Состояние ---
+  // --- ��������� ---
   const [currentGeneration, setCurrentGeneration] = useState<GenerationStatus | null>(null);
   const [history, setHistory] = useState<DocumentInfo[]>([]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -26,10 +26,10 @@ function App() {
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabName>('generate');
 
-  // Refs для управления polling
+  // Refs ��� ���������� polling
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // --- Загрузка начальных данных ---
+  // --- �������� ��������� ������ ---
   useEffect(() => {
     Promise.all([listDocuments(), listProviders()])
       .then(([docs, provs]) => {
@@ -38,25 +38,25 @@ function App() {
       })
       .catch((err) => {
         console.error('Initial load failed:', err);
-        setGlobalError('Не удалось загрузить данные. Убедитесь, что сервер запущен.');
+        setGlobalError('�� ������� ��������� ������. ���������, ��� ������ �������.');
       })
       .finally(() => setIsInitialLoading(false));
   }, []);
 
-  // --- Обработчик запуска генерации ---
+  // --- ���������� ������� ��������� ---
   const handleStartGeneration = async (topic: string, provider: string, isMulti: boolean, documentId?: string) => {
-    // Отмена предыдущего polling если был
+    // ������ ����������� polling ���� ���
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
 
-    // Устанавливаем placeholder-статус
+    // ������������� placeholder-������
     const placeholderStatus: GenerationStatus = {
       id: 'pending',
       topic,
       status: 'accepted',
-      current_stage: 'Принят в обработку',
+      current_stage: '������ � ���������',
       stage_progress: 0,
       total_sections: 0,
       completed_sections: 0,
@@ -72,16 +72,16 @@ function App() {
         // Multi-stage: POST /api/generate/multi + polling
         const { generation_id } = await startGeneration(topic, provider, documentId);
 
-        // Создаём AbortController для этого polling-цикла
+        // ������ AbortController ��� ����� polling-�����
         const abortController = new AbortController();
         abortControllerRef.current = abortController;
 
-        // Обновляем id в currentGeneration
+        // ��������� id � currentGeneration
         setCurrentGeneration((prev) =>
           prev ? { ...prev, id: generation_id } : prev
         );
 
-        // Polling с передачей AbortSignal
+        // Polling � ��������� AbortSignal
         const finalStatus = await pollGenerationStatus(
           generation_id,
           (statusUpdate) => {
@@ -96,7 +96,7 @@ function App() {
           3000,
         );
 
-        // Финальное обновление статуса
+        // ��������� ���������� �������
         setCurrentGeneration((prev) => ({
           ...(prev || placeholderStatus),
           ...finalStatus,
@@ -104,15 +104,15 @@ function App() {
           topic,
         }));
 
-        // Обновляем историю
+        // ��������� �������
         try {
           const docs = await listDocuments();
           setHistory(docs);
         } catch {
-          // Не критично
+          // �� ��������
         }
       } else {
-        // Single-stage (legacy): POST /api/generate — синхронный
+        // Single-stage (legacy): POST /api/generate � ����������
         const res = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -129,12 +129,12 @@ function App() {
 
         const data = await res.json();
 
-        // Single-stage возвращает document_id напрямую
+        // Single-stage ���������� document_id ��������
         setCurrentGeneration({
           id: 'single-' + Date.now(),
           topic,
           status: 'completed',
-          current_stage: 'Готово',
+          current_stage: '������',
           stage_progress: 100,
           total_sections: data.total_sections || 0,
           completed_sections: data.total_sections || 0,
@@ -144,17 +144,17 @@ function App() {
           completed_at: new Date().toISOString(),
         });
 
-        // Обновляем историю
+        // ��������� �������
         try {
           const docs = await listDocuments();
           setHistory(docs);
         } catch {
-          // Не критично
+          // �� ��������
         }
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        // Polling был отменён — не показываем ошибку
+        // Polling ��� ������ � �� ���������� ������
         return;
       }
 
@@ -163,7 +163,7 @@ function App() {
           ? {
               ...prev,
               status: 'failed' as const,
-              error_message: err instanceof Error ? err.message : 'Неизвестная ошибка',
+              error_message: err instanceof Error ? err.message : '����������� ������',
             }
           : null
       );
@@ -175,7 +175,7 @@ function App() {
     }
   };
 
-  // --- Сброс (новая генерация) ---
+  // --- ����� (����� ���������) ---
   const handleGenerateNew = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -185,15 +185,15 @@ function App() {
     setIsPolling(false);
   };
 
-  // --- Рендер ---
+  // --- ������ ---
   if (isInitialLoading) {
     return (
       <div className="app">
         <header>
-          <h1>📋 Генератор корпоративных регламентов</h1>
+          <h1>?? ��������� ������������� �����������</h1>
         </header>
         <main>
-          <div className="loading">Загрузка...</div>
+          <div className="loading">��������...</div>
         </main>
       </div>
     );
@@ -202,7 +202,7 @@ function App() {
   return (
     <div className="app">
       <header>
-        <h1>📋 Генератор корпоративных регламентов</h1>
+        <h1>?? ��������� ������������� �����������</h1>
       </header>
 
       <nav className="tabs">
@@ -211,21 +211,21 @@ function App() {
           className={`tab-button${activeTab === 'generate' ? ' tab-active' : ''}`}
           onClick={() => setActiveTab('generate')}
         >
-          Генерация
+          ���������
         </button>
         <button
           type="button"
           className={`tab-button${activeTab === 'documents' ? ' tab-active' : ''}`}
           onClick={() => setActiveTab('documents')}
         >
-          Анализ документов
+          ������ ����������
         </button>
         <button
           type="button"
           className={`tab-button${activeTab === 'history' ? ' tab-active' : ''}`}
           onClick={() => setActiveTab('history')}
         >
-          История
+          �������
         </button>
       </nav>
 
@@ -238,7 +238,7 @@ function App() {
               className="btn btn-small"
               onClick={() => setGlobalError(null)}
             >
-              ✕
+              ?
             </button>
           </div>
         )}
@@ -252,7 +252,7 @@ function App() {
               onCancelGeneration={handleGenerateNew}
             />
 
-            {/* ProgressPanel: показываем во время генерации (кроме completed/failed) */}
+            {/* ProgressPanel: ���������� �� ����� ��������� (����� completed/failed) */}
             {currentGeneration &&
               currentGeneration.status !== 'completed' &&
               currentGeneration.status !== 'failed' && (
@@ -269,7 +269,7 @@ function App() {
                 />
               )}
 
-            {/* ProgressPanel в режиме failed (показываем ошибку) */}
+            {/* ProgressPanel � ������ failed (���������� ������) */}
             {currentGeneration?.status === 'failed' && (
               <ProgressPanel
                 status={currentGeneration}
@@ -284,7 +284,7 @@ function App() {
               />
             )}
 
-            {/* ResultPanel: показываем только при complete */}
+            {/* ResultPanel: ���������� ������ ��� complete */}
             {currentGeneration?.status === 'completed' && (
               <ResultPanel
                 status={currentGeneration}

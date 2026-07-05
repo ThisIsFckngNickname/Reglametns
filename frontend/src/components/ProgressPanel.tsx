@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import type { GenerationStatus } from '../types';
 import { STAGE_LABELS, STAGE_COLORS, STAGE_ORDER } from '../types';
 
@@ -12,9 +12,9 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   if (m > 0) {
-    return `${m} мин ${s} сек`;
+    return `${m} ��� ${s} ���`;
   }
-  return `${s} сек`;
+  return `${s} ���`;
 }
 
 function getStageIndex(stage: string): number {
@@ -37,10 +37,10 @@ export default function ProgressPanel({
 }: ProgressPanelProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-  // Timer: обновление каждую секунду
+  // Timer: ���������� ������ �������
   useEffect(() => {
     if (status.status === 'completed' || status.status === 'failed') {
-      // Для completed/failed — фиксируем финальное время
+      // ��� completed/failed � ��������� ��������� �����
       if (status.created_at && status.completed_at) {
         let createdStr = status.created_at;
         let completedStr = status.completed_at;
@@ -54,7 +54,7 @@ export default function ProgressPanel({
       return;
     }
 
-    // Активный таймер
+    // �������� ������
     let startTime = Date.now();
     if (status.created_at) {
       let dateStr = status.created_at;
@@ -81,7 +81,7 @@ export default function ProgressPanel({
   const progressColor = isFailed ? '#ef4444' : getStageColor(status.status);
   const progressPercent = Math.min(100, Math.max(0, status.stage_progress));
 
-  // Определение статуса для каждого этапа чеклиста
+  // ����������� ������� ��� ������� ����� ��������
   const getStageStatus = useCallback(
     (stageIdx: number) => {
       if (isFailed && stageIdx >= currentStageIndex) {
@@ -103,7 +103,7 @@ export default function ProgressPanel({
       <div className="progress-header">
         {isActive && <span className="spinner" />}
         <span className="progress-title">
-          {isFailed ? '❌ Ошибка генерации' : isCompleted ? '✅ Генерация завершена' : '⏳ Генерация регламента'}
+          {isFailed ? '? ������ ���������' : isCompleted ? '? ��������� ���������' : '? ��������� ����������'}
         </span>
       </div>
 
@@ -124,7 +124,7 @@ export default function ProgressPanel({
         <strong>{getStageLabel(status.status)}</strong>
         {status.status === 'generating' && status.total_sections > 0 && (
           <span className="section-counter">
-            {' '}— Раздел {status.completed_sections} из {status.total_sections} ({Math.round(
+            {' '}� ������ {status.completed_sections} �� {status.total_sections} ({Math.round(
               (status.completed_sections / status.total_sections) * 100
             )}%)
           </span>
@@ -133,27 +133,27 @@ export default function ProgressPanel({
 
       {/* Timer */}
       <div className="progress-timer">
-        <div>⏱ Прошло: {formatDuration(elapsedSeconds)}</div>
+        <div>? ������: {formatDuration(elapsedSeconds)}</div>
       </div>
 
       {/* Checklist stages */}
       <div className="stage-checklist">
-        <h4>Этапы:</h4>
+        <h4>�����:</h4>
         <ul>
           {STAGE_ORDER.map((stage, idx) => {
             const stageStatus = getStageStatus(idx);
             const isLastCompleted = stage === 'completed' && isCompleted;
             const label = getStageLabel(stage);
-            let icon = '⬜';
+            let icon = '?';
             let className = 'stage-pending';
             if (stageStatus === 'done' || isLastCompleted) {
-              icon = '✅';
+              icon = '?';
               className = 'stage-done';
             } else if (stageStatus === 'current') {
-              icon = '⏳';
+              icon = '?';
               className = 'stage-current';
             } else if (stageStatus === 'failed') {
-              icon = '❌';
+              icon = '?';
               className = 'stage-failed';
             }
             return (
@@ -171,7 +171,7 @@ export default function ProgressPanel({
       {/* Error message */}
       {isFailed && status.error_message && (
         <div className="error-detail">
-          <strong>Ошибка:</strong> {status.error_message}
+          <strong>������:</strong> {status.error_message}
         </div>
       )}
 
@@ -180,15 +180,15 @@ export default function ProgressPanel({
         {isFailed ? (
           <>
             <button type="button" className="btn btn-primary" onClick={onRetry}>
-              🔄 Retry
+              ?? Retry
             </button>
             <button type="button" className="btn btn-secondary" onClick={onCancel}>
-              ✕ Cancel
+              ? Cancel
             </button>
           </>
         ) : isCompleted ? null : (
           <button type="button" className="btn btn-cancel" onClick={onCancel}>
-            ✕ Отмена
+            ? ������
           </button>
         )}
       </div>

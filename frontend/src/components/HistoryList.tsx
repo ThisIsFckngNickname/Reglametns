@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import type { DocumentInfo } from '../types';
 import { formatProviderName } from '../types';
 import { getDocumentDownloadUrl } from '../api/client';
@@ -24,7 +24,7 @@ function formatDate(isoString: string): string {
 
 function truncateTopic(topic: string, maxLen: number = 50): string {
   if (topic.length <= maxLen) return topic;
-  return topic.slice(0, maxLen) + '…';
+  return topic.slice(0, maxLen) + '�';
 }
 
 export default function HistoryList({
@@ -35,11 +35,11 @@ export default function HistoryList({
     return (
       <div className="card history-list">
         <div className="history-header">
-          <h2>📋 История генераций</h2>
+          <h2>?? ������� ���������</h2>
         </div>
         <div className="history-empty">
-          <p>Пока нет созданных регламентов.</p>
-          <p>Создайте первый регламент выше.</p>
+          <p>���� ��� ��������� �����������.</p>
+          <p>�������� ������ ��������� ����.</p>
         </div>
       </div>
     );
@@ -48,14 +48,14 @@ export default function HistoryList({
   return (
     <div className="card history-list">
       <div className="history-header">
-        <h2>📋 История генераций</h2>
+        <h2>?? ������� ���������</h2>
         <button
           type="button"
           className="btn btn-small"
           onClick={onRefresh}
-          title="Обновить список"
+          title="�������� ������"
         >
-          🔄
+          ??
         </button>
       </div>
 
@@ -64,10 +64,10 @@ export default function HistoryList({
           <thead>
             <tr>
               <th>#</th>
-              <th>Тема</th>
-              <th>Провайдер</th>
-              <th>Дата</th>
-              <th>Действие</th>
+              <th>����</th>
+              <th>���������</th>
+              <th>����</th>
+              <th>��������</th>
             </tr>
           </thead>
           <tbody>
@@ -86,9 +86,9 @@ export default function HistoryList({
                     href={getDocumentDownloadUrl(doc.id)}
                     className="btn btn-small btn-download"
                     download
-                    title="Скачать"
+                    title="�������"
                   >
-                    ⬇
+                    ?
                   </a>
                 </td>
               </tr>
