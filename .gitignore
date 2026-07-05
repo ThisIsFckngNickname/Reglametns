@@ -57,5 +57,9 @@ htmlcov/
 # Logs
 *.log
 
+# MCP Memory knowledge graph file
+memory.jsonl
+*.jsonl
+
 # Archived files
 _archive/

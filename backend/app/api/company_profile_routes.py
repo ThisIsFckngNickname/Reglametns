@@ -94,6 +94,8 @@ from app.services.paragraph_analyzer import analyze_paragraphs, AnalysisResult
 
 from app.services.profile_synthesizer import synthesize_profile
 
+from app.services.pipeline_memory import store_pipeline_result
+
 from app.config import settings
 from app.providers.ollama import OllamaProvider
 
@@ -636,9 +638,24 @@ async def _run_analysis(profile_id: str) -> None:
 
         db.commit()
 
-
-
         logger.info("Profile %s analysis complete", profile_id)
+
+        # ── Store pipeline result in MCP Memory ──
+        if profile_data is not None:
+            try:
+                profile_as_dict = asdict(profile_data)
+                memory_ok = await store_pipeline_result(
+                    profile_id=profile_id,
+                    stats=final_stats,
+                    profile_dict=profile_as_dict,
+                    document_count=len(all_extracted),
+                )
+                if memory_ok.get("analysis_stored") or memory_ok.get("profile_stored"):
+                    logger.info("Pipeline result stored in MCP Memory for profile %s", profile_id)
+                else:
+                    logger.info("MCP Memory not available (non-critical)")
+            except Exception as mem_err:
+                logger.warning("MCP Memory store skipped (non-critical): %s", mem_err)
 
 
 
