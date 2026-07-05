@@ -121,7 +121,7 @@ export function formatProviderName(providerId: string): string {
 // ============================================================
 
 /** Статус анализа документа */
-export type AnalysisStatus = 'uploaded' | 'extracting' | 'analyzing' | 'ready' | 'failed';
+export type AnalysisStatus = 'uploaded' | 'extracting' | 'analyzing' | 'synthesizing' | 'ready' | 'cancelled' | 'cancelling' | 'failed';
 
 /** Ответ от POST /api/documents/upload */
 export interface UploadResponse {

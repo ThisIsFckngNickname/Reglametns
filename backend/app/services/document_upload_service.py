@@ -23,6 +23,18 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "uploads")
 
 
+class CancelledError(Exception):
+    """Выбрасывается, когда пользователь отменил анализ."""
+    pass
+
+
+def _check_cancelled(document_id: str, db: Session):
+    """Проверяет, не отменён ли анализ. Если да — бросает CancelledError."""
+    doc = db.query(DocumentAnalysis).filter(DocumentAnalysis.id == document_id).first()
+    if doc and doc.cancelled:
+        raise CancelledError("Analysis cancelled")
+
+
 def _ensure_upload_dir():
     os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -68,6 +80,7 @@ async def run_analysis_pipeline(
     3. generate_insights
     4. Сохраняет результаты в DocumentAnalysis
 
+    На каждом этапе проверяет флаг cancelled и обновляет analysis_stats.
     Создаёт собственную сессию БД для независимости от HTTP-запроса.
     """
     db = SessionLocal()
@@ -87,7 +100,11 @@ async def run_analysis_pipeline(
         logger.info("Extracted %d paragraphs from %s", len(paragraphs), doc.original_filename)
         doc.total_paragraphs = len(paragraphs)
         doc.paragraphs_json = json.dumps([p.__dict__ if hasattr(p, '__dict__') else str(p) for p in paragraphs], ensure_ascii=False)
+        doc.analysis_stats = json.dumps({"phase": "extracting", "paragraphs_processed": len(paragraphs)}, ensure_ascii=False)
         db.commit()
+
+        # Check cancelled before heavy LLM work
+        _check_cancelled(doc.id, db)
 
         # 2. Analyze paragraphs
         doc.status = "analyzing"
@@ -98,19 +115,36 @@ async def run_analysis_pipeline(
         total_steps = sum(len(ap.steps) for ap in analyzed)
         logger.info("Analyzed %d paragraphs, found %d steps", len(analyzed), total_steps)
         doc.total_steps = total_steps
-        db.commit()
-
-        # 3. Generate insights
-        insights: DocumentInsights = await generate_insights(analyzed, provider)
-        doc.insights_json = json.dumps(insights.__dict__, ensure_ascii=False, default=str)
         doc.analysis_stats = json.dumps({
-            "total_paragraphs": len(paragraphs),
-            "total_analyzed": len(analyzed),
+            "phase": "analyzing",
+            "paragraphs_processed": len(analyzed),
             "total_steps": total_steps,
         }, ensure_ascii=False)
+        db.commit()
 
-        # 4. Finalize
+        # Check cancelled before synthesis
+        _check_cancelled(doc.id, db)
+
+        # 3. Generate insights
+        doc.status = "synthesizing"
+        doc.analysis_stats = json.dumps({
+            "phase": "synthesizing",
+            "total_paragraphs": len(paragraphs),
+            "total_steps": total_steps,
+        }, ensure_ascii=False)
+        db.commit()
+
+        insights: DocumentInsights = await generate_insights(analyzed, provider)
+        doc.insights_json = json.dumps(insights.__dict__, ensure_ascii=False, default=str)
+
+        # 4. Ready
         doc.status = "ready"
+        doc.analysis_stats = json.dumps({
+            "phase": "ready",
+            "total_paragraphs": len(paragraphs),
+            "total_steps": total_steps,
+            "total_analyzed": len(analyzed),
+        }, ensure_ascii=False)
         db.commit()
         db.refresh(doc)
 
@@ -139,6 +173,14 @@ async def run_analysis_pipeline(
 
         return doc
 
+    except CancelledError:
+        doc = db.query(DocumentAnalysis).filter(DocumentAnalysis.id == document_id).first()
+        if doc:
+            doc.status = "cancelled"
+            doc.error_message = "Анализ отменён пользователем"
+            db.commit()
+        logger.info("Analysis cancelled for %s", document_id)
+        raise
     except Exception as e:
         db.rollback()
         doc = db.query(DocumentAnalysis).filter(DocumentAnalysis.id == document_id).first()

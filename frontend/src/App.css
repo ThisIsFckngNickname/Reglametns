@@ -766,3 +766,163 @@ select.input-field {
   text-align: center;
   padding: 2rem;
 }
+
+/* Upload zone with drag & drop */
+.upload-zone {
+  border: 2px dashed #d1d5db;
+  border-radius: 12px;
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #fafafa;
+  margin-bottom: 1.5rem;
+}
+
+.upload-zone:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.upload-zone.drag-over {
+  border-color: #2563eb;
+  background: #dbeafe;
+  transform: scale(1.01);
+}
+
+.upload-zone.uploading {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  cursor: default;
+  opacity: 0.7;
+}
+
+.upload-zone-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.upload-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
+.upload-text {
+  margin: 0;
+  color: #374151;
+  font-size: 1rem;
+}
+
+.upload-text strong {
+  color: #2563eb;
+}
+
+.upload-hint {
+  margin: 0;
+  color: #9ca3af;
+  font-size: 0.85rem;
+}
+
+.upload-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #f59e0b;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Pipeline stages */
+.pipeline-stages {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
+  flex-wrap: wrap;
+}
+
+.pipeline-stage {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: #f3f4f6;
+  color: #9ca3af;
+  transition: all 0.3s ease;
+}
+
+.pipeline-stage.active {
+  background: #dbeafe;
+  color: #2563eb;
+  font-weight: 500;
+}
+
+.pipeline-stage.complete {
+  background: #d1fae5;
+  color: #059669;
+}
+
+.pipeline-stage.failed {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.pipeline-stage.pending {
+  opacity: 0.5;
+}
+
+.stage-indicator {
+  font-size: 0.9rem;
+  line-height: 1;
+  width: 16px;
+  text-align: center;
+}
+
+.stage-info {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.stage-name {
+  white-space: nowrap;
+}
+
+.stage-progress {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.stage-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #93c5fd;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Cancel button */
+.btn-cancel {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.btn-cancel:hover {
+  background: #fecaca;
+}
+
+.cancelled-text {
+  color: #6b7280;
+  font-size: 0.9rem;
+}

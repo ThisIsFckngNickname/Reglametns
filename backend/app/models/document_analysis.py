@@ -23,7 +23,9 @@ class DocumentAnalysis(Base):
     stored_path = Column(String(500), nullable=False)
     file_size = Column(Integer, default=0)
     status = Column(String(20), nullable=False, default="uploaded")
-    # Статусы: uploaded, extracting, analyzing, ready, failed
+    # Статусы: uploaded, extracting, analyzing, synthesizing, ready, cancelled, failed
+
+    cancelled = Column(Integer, default=0)  # SQLite boolean as 0/1
 
     total_paragraphs = Column(Integer, default=0)
     total_steps = Column(Integer, default=0)

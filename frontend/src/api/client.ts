@@ -241,3 +241,18 @@ export async function listDocumentAnalyses(): Promise<DocumentAnalysis[]> {
   }
   return [];
 }
+
+/**
+ * Отмена анализа документа.
+ * POST /api/analyses/{id}/cancel
+ */
+export async function cancelAnalysis(id: string): Promise<AnalyzeResponse> {
+  const res = await fetch(`${API_BASE}/analyses/${id}/cancel`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => null);
+    throw new ApiError(res.status, errBody?.detail || (await res.text()));
+  }
+  return res.json();
+}
