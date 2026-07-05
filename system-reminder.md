@@ -1,4 +1,4 @@
-# system-reminder.md
+﻿# system-reminder.md
 
 ## Plan mode discipline
 
@@ -46,3 +46,12 @@ Do not start implementation without a confirmed plan.
 - Р”Р»СЏ frontend (npm.cmd вЂ” batch-С„Р°Р№Р»): Р·Р°РїСѓСЃРєР°С‚СЊ С‡РµСЂРµР· `cmd.exe /c`
 - РџРѕСЃР»Рµ Р·Р°РїСѓСЃРєР° РїСЂРѕРІРµСЂСЏС‚СЊ С‡С‚Рѕ СЃРµСЂРІРёСЃС‹ РѕС‚РІРµС‡Р°СЋС‚ (health check / http status)
 - PID-С„Р°Р№Р»С‹: `.backend.pid`, `.frontend.pid` РІ РєРѕСЂРЅРµ РїСЂРѕРµРєС‚Р°
+
+## MCP Memory context check
+
+Before starting implementation work, check MCP Memory for relevant context:
+- Query `memory` server: `search_nodes("relevant topic")`
+- Query `chromadb` server: `search_sessions("relevant topic")`
+- If a previous analysis or decision exists, reference it in your plan.
+
+Both MCP servers are configured in opencode.json and always available.
