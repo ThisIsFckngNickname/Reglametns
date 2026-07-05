@@ -1,0 +1,97 @@
+{
+    "$schema":  "https://opencode.ai/config.json",
+    "model":  "anthropic/claude-sonnet-4-20250514",
+    "default_agent":  "PM",
+    "instructions":  [
+                         "AGENTS.md",
+                         "system-reminder.md"
+                     ],
+    "tool_output":  {
+                        "max_lines":  500,
+                        "max_bytes":  25600
+                    },
+    "compaction":  {
+                       "auto":  true,
+                       "tail_turns":  5
+                   },
+    "agent":  {
+                  "PM":  {
+                             "description":  "Product Manager (Product scope and priorities)",
+                             "prompt":  "{file:./.opencode/agents/PM.md}"
+                         },
+                  "SA":  {
+                             "description":  "System Analyst (Requirements and contracts)",
+                             "prompt":  "{file:./.opencode/agents/SA.md}"
+                         },
+                  "DA":  {
+                             "description":  "Data Analyst (Metrics and reporting)",
+                             "prompt":  "{file:./.opencode/agents/DA.md}"
+                         },
+                  "DE":  {
+                             "description":  "Data Engineer (Pipelines and warehouse)",
+                             "prompt":  "{file:./.opencode/agents/DE.md}"
+                         },
+                  "BE":  {
+                             "description":  "Backend Engineer (API and business logic)",
+                             "prompt":  "{file:./.opencode/agents/BE.md}"
+                         },
+                  "FE":  {
+                             "description":  "Frontend Engineer (UI and UX flows)",
+                             "prompt":  "{file:./.opencode/agents/FE.md}"
+                         },
+                  "IE":  {
+                             "description":  "Infrastructure Engineer (CI/CD and operations)",
+                             "prompt":  "{file:./.opencode/agents/IE.md}"
+                         },
+                  "QA":  {
+                             "description":  "Quality Assurance — независимая верификация. Всегда говорит правду, подкреплённую выводом команд.",
+                             "prompt":  "{file:./.opencode/agents/QA.md}"
+                         }
+              },
+    "permission":  {
+                       "edit":  "allow",
+                       "write":  "allow",
+                       "read":  "allow",
+                       "glob":  "allow",
+                       "grep":  "allow",
+                       "list":  "allow",
+                       "bash":  {
+                                    "*":  "allow",
+                                    "rm -rf*":  "deny"
+                                },
+                       "task":  "allow",
+                       "webfetch":  "allow",
+                       "websearch":  "allow"
+                   },
+    "mcp":  {
+                "memory":  {
+                               "command":  [
+                                               "npx",
+                                               "-y",
+                                               "@modelcontextprotocol/server-memory"
+                                           ],
+                               "type":  "local",
+                               "enabled":  true
+                           },
+                "chromadb":  {
+                                 "command":  [
+                                                 "python",
+                                                 ".opencode/scripts/mcp_chromadb.py"
+                                             ],
+                                 "type":  "local",
+                                 "enabled":  true
+                             }
+            },
+    "experimental":  {
+                         "hook":  {
+                                      "session_completed":  [
+                                                                {
+                                                                    "command":  [
+                                                                                    "python",
+                                                                                    ".opencode/scripts/session_complete_hook.py"
+                                                                                ]
+                                                                }
+                                                            ]
+                                  }
+                     }
+}
