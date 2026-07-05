@@ -202,6 +202,51 @@ At the end of implementation tasks provide:
 
 ---
 
+## MCP Memory context
+
+This project has **two MCP servers** that store knowledge persistently across sessions:
+
+### 1. memory (`@modelcontextprotocol/server-memory`)
+- Stores entities (knowledge graph nodes) with observations
+- File: `memory.jsonl` in project root (gitignored)
+- Tools available to all agents:
+  - `search_nodes(query)` — search entities by name, type, or observation content
+  - `read_graph()` — read the entire knowledge graph
+  - `open_nodes(names)` — open specific nodes by name
+  - `create_entities(...)` — create new entities
+  - `add_observations(...)` — add observations to existing entities
+  - `create_relations(...)` — create relations between entities
+- Contains: document analysis results, paragraph profiles, pipeline statistics
+- Written by: `company_profile_routes.py` after profile synthesis
+
+### 2. chromadb (`.opencode/scripts/mcp_chromadb.py`)
+- Vector search across all 1513 past OpenCode sessions
+- Tools:
+  - `search_sessions(query, limit=10)` — semantic search through session history
+  - `get_index_stats()` — index statistics
+  - `get_session_by_id(session_id)` — get session details
+  - `search_by_project(project_name, limit=10)` — filter by project
+
+### Agent usage rules
+
+1. **Before starting a task**, query relevant context:
+   - For project context: `search_nodes("project name or topic")` on memory server
+   - For past decisions: `search_sessions("what we discussed about X")` on chromadb
+   - For pipeline history: `search_nodes("analysis OR profile")` on memory server
+
+2. **After completing significant work**, store results:
+   - Pipeline results are auto-stored by `store_pipeline_result()` in backend code
+   - For manual storage: use `create_entities` with entityType describing the content
+   - Always include a timestamp observation
+
+3. **Both servers are non-critical**: if they fail, work continues without them.
+   The pipeline memory store is wrapped in try/except — same applies to manual usage.
+
+4. **Data is per-project**: memory.jsonl lives in this project's root.
+   Each project has its own knowledge graph.
+
+---
+
 ## Dev services startup rules
 
 РџСЂРё Р·Р°РїСѓСЃРєРµ dev-СЃРµСЂРІРµСЂРѕРІ (backend uvicorn, frontend Vite) СЃРѕР±Р»СЋРґР°Р№ СЃР»РµРґСѓСЋС‰РёРµ РїСЂР°РІРёР»Р°:
@@ -377,6 +422,15 @@ Do not start implementation without a confirmed plan.
 - Р”Р»СЏ frontend (npm.cmd вЂ” batch-С„Р°Р№Р»): Р·Р°РїСѓСЃРєР°С‚СЊ С‡РµСЂРµР· `cmd.exe /c`
 - РџРѕСЃР»Рµ Р·Р°РїСѓСЃРєР° РїСЂРѕРІРµСЂСЏС‚СЊ С‡С‚Рѕ СЃРµСЂРІРёСЃС‹ РѕС‚РІРµС‡Р°СЋС‚ (health check / http status)
 - PID-С„Р°Р№Р»С‹: `.backend.pid`, `.frontend.pid` РІ РєРѕСЂРЅРµ РїСЂРѕРµРєС‚Р°
+
+## MCP Memory context check
+
+Before starting implementation work, check MCP Memory for relevant context:
+- Query `memory` server: `search_nodes("relevant topic")`
+- Query `chromadb` server: `search_sessions("relevant topic")`
+- If a previous analysis or decision exists, reference it in your plan.
+
+Both MCP servers are configured in opencode.json and always available.
 '@
 
 $PM_MD_CONTENT = @'
@@ -2360,6 +2414,8 @@ Thumbs.db
 
 # OpenCode
 .opencode/scripts/chromadb/
+memory.jsonl
+*.jsonl
 
 # Temp
 tmp_*/
