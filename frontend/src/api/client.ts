@@ -26,8 +26,12 @@ export class ApiError extends Error {
 export async function startGeneration(
   topic: string,
   provider?: string,
+  documentId?: string,
 ): Promise<{ generation_id: string; status: string }> {
   const body: Record<string, string> = { topic, provider: provider ?? 'auto' };
+  if (documentId) {
+    body.document_id = documentId;
+  }
   const res = await fetch(`${API_BASE}/generate/multi`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -172,14 +176,14 @@ export async function pollGenerationStatus(
 
 /**
  * Загрузка .docx файла для анализа.
- * POST /api/documents/upload
+ * POST /api/analyses/upload
  */
 export async function uploadDocument(
   file: File
 ): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch(`${API_BASE}/documents/upload`, {
+  const res = await fetch(`${API_BASE}/analyses/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -192,12 +196,12 @@ export async function uploadDocument(
 
 /**
  * Запуск анализа документа (background).
- * POST /api/documents/{id}/analyze
+ * POST /api/analyses/{id}/analyze
  */
 export async function analyzeDocument(
   id: string
 ): Promise<AnalyzeResponse> {
-  const res = await fetch(`${API_BASE}/documents/${id}/analyze`, {
+  const res = await fetch(`${API_BASE}/analyses/${id}/analyze`, {
     method: 'POST',
   });
   if (!res.ok) {
@@ -209,12 +213,12 @@ export async function analyzeDocument(
 
 /**
  * Получение статуса и результатов анализа.
- * GET /api/documents/{id}
+ * GET /api/analyses/{id}
  */
 export async function getDocumentAnalysis(
   id: string
 ): Promise<DocumentAnalysis> {
-  const res = await fetch(`${API_BASE}/documents/${id}`);
+  const res = await fetch(`${API_BASE}/analyses/${id}`);
   if (!res.ok) {
     const errBody = await res.json().catch(() => null);
     throw new ApiError(res.status, errBody?.detail || (await res.text()));
@@ -224,10 +228,10 @@ export async function getDocumentAnalysis(
 
 /**
  * Список всех документов с анализом.
- * GET /api/documents
+ * GET /api/analyses
  */
 export async function listDocumentAnalyses(): Promise<DocumentAnalysis[]> {
-  const res = await fetch(`${API_BASE}/documents`);
+  const res = await fetch(`${API_BASE}/analyses`);
   if (!res.ok) {
     throw new ApiError(res.status, await res.text());
   }

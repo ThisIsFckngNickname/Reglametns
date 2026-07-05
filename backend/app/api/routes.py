@@ -5,8 +5,10 @@ Stage 2: все провайдеры, auto-select, fallback.
 """
 
 import asyncio
+import json
 import logging
 import os
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -15,6 +17,7 @@ from sqlalchemy import desc
 
 from app.database import get_db
 from app.models.document import Document
+from app.models.document_analysis import DocumentAnalysis
 from app.models.session import GenerationSession
 from app.schemas.document import (
     GenerateRequest,
@@ -45,6 +48,10 @@ class MultiStageRequest(BaseModel):
     provider: str = Field(
         default="auto",
         description="Выбор AI-провайдера: auto, groq, ollama, yandexgpt",
+    )
+    document_id: Optional[str] = Field(
+        default=None,
+        description="ID проанализированного документа для использования инсайтов как контекста",
     )
 
 logger = logging.getLogger(__name__)
@@ -119,6 +126,59 @@ async def start_multi_stage_generation(
     except ValueError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
+    # Загружаем инсайты документа, если указан document_id
+    profile_context = None
+    if request.document_id:
+        doc_analysis = db.query(DocumentAnalysis).filter(
+            DocumentAnalysis.id == request.document_id
+        ).first()
+        if doc_analysis and doc_analysis.insights_json and doc_analysis.status == "ready":
+            insights = json.loads(doc_analysis.insights_json)
+            # Форматируем инсайты как контекст для генерации
+            context_parts = ["## Контекст из проанализированного документа\n"]
+
+            if insights.get("step_templates"):
+                context_parts.append("### Шаблоны предложений")
+                for tpl in insights["step_templates"][:5]:
+                    context_parts.append(f"- {tpl}")
+                context_parts.append("")
+
+            if insights.get("vocabulary"):
+                vocab = insights["vocabulary"]
+                context_parts.append("### Словарь терминов")
+                if vocab.get("roles"):
+                    roles_str = ", ".join(list(vocab["roles"].keys())[:10])
+                    context_parts.append(f"- Роли: {roles_str}")
+                if vocab.get("actions"):
+                    actions_str = ", ".join(list(vocab["actions"].keys())[:10])
+                    context_parts.append(f"- Действия: {actions_str}")
+                if vocab.get("conditions"):
+                    context_parts.append(f"- Условия: {', '.join(vocab['conditions'][:5])}")
+                if vocab.get("documents"):
+                    context_parts.append(f"- Документы: {', '.join(vocab['documents'][:5])}")
+                if vocab.get("methods"):
+                    context_parts.append(f"- Способы: {', '.join(vocab['methods'][:5])}")
+                context_parts.append("")
+
+            if insights.get("logic_rules"):
+                rules = insights["logic_rules"]
+                context_parts.append("### Правила логики")
+                for key, val in rules.items():
+                    if isinstance(val, bool):
+                        context_parts.append(f"- {key}: {'да' if val else 'нет'}")
+                    elif isinstance(val, list):
+                        context_parts.append(f"- {key}: {', '.join(val)}")
+                context_parts.append("")
+
+            profile_context = "\n".join(context_parts)
+            logger.info("Loaded document insights for context: %s", request.document_id)
+        elif doc_analysis and doc_analysis.status != "ready":
+            logger.warning(
+                "Document %s has status %s, skipping context",
+                request.document_id,
+                doc_analysis.status,
+            )
+
     # Создать сессию
     session = GenerationSession(
         topic=request.topic,
@@ -134,6 +194,7 @@ async def start_multi_stage_generation(
         run_multi_stage_generation(
             session.id,
             provider,
+            profile_context=profile_context,
         )
     )
 

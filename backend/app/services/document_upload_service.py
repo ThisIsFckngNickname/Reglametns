@@ -10,6 +10,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from app.database import SessionLocal
 from app.models.document_analysis import DocumentAnalysis
 from app.services.paragraph_extractor import extract_paragraphs
 from app.services.paragraph_analyzer import analyze_paragraphs, Step, AnalyzedParagraph
@@ -59,7 +60,6 @@ def upload_document(
 async def run_analysis_pipeline(
     document_id: str,
     provider: BaseLLMProvider,
-    db: Session,
 ) -> DocumentAnalysis:
     """
     Запускает полный пайплайн анализа документа:
@@ -67,15 +67,18 @@ async def run_analysis_pipeline(
     2. analyze_paragraphs
     3. generate_insights
     4. Сохраняет результаты в DocumentAnalysis
+
+    Создаёт собственную сессию БД для независимости от HTTP-запроса.
     """
-    doc = db.query(DocumentAnalysis).filter(DocumentAnalysis.id == document_id).first()
-    if not doc:
-        raise ValueError(f"DocumentAnalysis {document_id} not found")
-
-    if doc.status != "uploaded":
-        raise ValueError(f"DocumentAnalysis {document_id} has invalid status: {doc.status}")
-
+    db = SessionLocal()
     try:
+        doc = db.query(DocumentAnalysis).filter(DocumentAnalysis.id == document_id).first()
+        if not doc:
+            raise ValueError(f"DocumentAnalysis {document_id} not found")
+
+        if doc.status != "uploaded":
+            raise ValueError(f"DocumentAnalysis {document_id} has invalid status: {doc.status}")
+
         # 1. Extract paragraphs
         doc.status = "extracting"
         db.commit()
@@ -137,8 +140,13 @@ async def run_analysis_pipeline(
         return doc
 
     except Exception as e:
-        doc.status = "failed"
-        doc.error_message = str(e)[:1000]
-        db.commit()
+        db.rollback()
+        doc = db.query(DocumentAnalysis).filter(DocumentAnalysis.id == document_id).first()
+        if doc:
+            doc.status = "failed"
+            doc.error_message = str(e)[:1000]
+            db.commit()
         logger.error("Analysis failed for %s: %s", document_id, e)
         raise
+    finally:
+        db.close()

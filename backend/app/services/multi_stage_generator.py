@@ -6,6 +6,7 @@ Stage 4.4: полный цикл: план → аннотации → разде
 import json
 import logging
 import os
+from typing import Optional
 from app.database import SessionLocal
 from app.models.session import GenerationSession
 from app.models.plan import GenerationPlan
@@ -25,6 +26,7 @@ GENERATED_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "genera
 async def run_multi_stage_generation(
     generation_session_id: str,
     provider: BaseLLMProvider,
+    profile_context: Optional[str] = None,
 ):
     """Запустить полный цикл multi-stage генерации."""
     db = SessionLocal()
@@ -35,8 +37,6 @@ async def run_multi_stage_generation(
         if not generation_session:
             logger.error("Session %s not found", generation_session_id)
             return
-
-        profile_context = None
 
         # === Этап 1: План ===
         generation_session.status = "planning"

@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import type { ProviderInfo } from '../types';
+import React, { useState, useEffect } from 'react';
+import type { ProviderInfo, DocumentAnalysis } from '../types';
+import { listDocumentAnalyses } from '../api/client';
 
 interface GeneratorFormProps {
   providers: ProviderInfo[];
   disabled: boolean;
-  onStartGeneration: (topic: string, provider: string, isMulti: boolean) => Promise<void>;
+  onStartGeneration: (topic: string, provider: string, isMulti: boolean, documentId?: string) => Promise<void>;
   onCancelGeneration: () => void;
 }
 
@@ -20,6 +21,19 @@ export default function GeneratorForm({
   const [provider, setProvider] = useState('auto');
   const [isGenerating, setIsGenerating] = useState(false);
   const [validationError, setValidationError] = useState('');
+  const [analyzedDocs, setAnalyzedDocs] = useState<DocumentAnalysis[]>([]);
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string>('');
+
+  useEffect(() => {
+    listDocumentAnalyses()
+      .then((docs) => {
+        const readyDocs = docs.filter((d) => d.status === 'ready');
+        setAnalyzedDocs(readyDocs);
+      })
+      .catch(() => {
+        // non-critical — no docs to load
+      });
+  }, []);
 
   const topicTrimmed = topic.trim();
   const isTopicEmpty = topicTrimmed.length === 0;
@@ -54,7 +68,9 @@ export default function GeneratorForm({
     setValidationError('');
 
     try {
-      await onStartGeneration(topicTrimmed, provider, isMulti);
+      // Pass document_id only for multi-stage generation
+      const docId = isMulti ? (selectedDocumentId || undefined) : undefined;
+      await onStartGeneration(topicTrimmed, provider, isMulti, docId);
     } catch (err) {
       setValidationError(err instanceof Error ? err.message : 'Ошибка генерации');
     } finally {
@@ -108,6 +124,26 @@ export default function GeneratorForm({
           ))}
         </select>
       </div>
+
+      {analyzedDocs.length > 0 && (
+        <div className="form-group">
+          <label htmlFor="document-select">Контекст из анализа документа</label>
+          <select
+            id="document-select"
+            value={selectedDocumentId}
+            onChange={(e) => setSelectedDocumentId(e.target.value)}
+            disabled={isGenerating || disabled}
+            className="input-field"
+          >
+            <option value="">Без контекста</option>
+            {analyzedDocs.map((doc) => (
+              <option key={doc.id} value={doc.id}>
+                {doc.original_filename} ({doc.total_paragraphs} параграфов, {doc.total_steps} шагов)
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {validationError && (
         <div className="error-message">{validationError}</div>

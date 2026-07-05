@@ -44,7 +44,7 @@ function App() {
   }, []);
 
   // --- Обработчик запуска генерации ---
-  const handleStartGeneration = async (topic: string, provider: string, isMulti: boolean) => {
+  const handleStartGeneration = async (topic: string, provider: string, isMulti: boolean, documentId?: string) => {
     // Отмена предыдущего polling если был
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -70,7 +70,7 @@ function App() {
     try {
       if (isMulti) {
         // Multi-stage: POST /api/generate/multi + polling
-        const { generation_id } = await startGeneration(topic, provider);
+        const { generation_id } = await startGeneration(topic, provider, documentId);
 
         // Создаём AbortController для этого polling-цикла
         const abortController = new AbortController();

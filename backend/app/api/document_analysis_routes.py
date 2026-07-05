@@ -2,18 +2,19 @@
 document_analysis_routes — API endpoints для загрузки и анализа документов.
 
 Flow:
-  POST /api/documents/upload  → Upload .docx → получаем DocumentAnalysis
-  POST /api/documents/{id}/analyze → Запуск анализа (extract → analyze → insights)
-  GET  /api/documents/{id}     → Получить статус и результаты
-  GET  /api/documents          → Список всех анализов
+  POST /api/analyses/upload  → Upload .docx → получаем DocumentAnalysis
+  POST /api/analyses/{id}/analyze → Запуск анализа (extract → analyze → insights)
+  GET  /api/analyses/{id}     → Получить статус и результаты
+  GET  /api/analyses          → Список всех анализов
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -22,7 +23,7 @@ from app.models.document_analysis import DocumentAnalysis
 from app.services.document_upload_service import upload_document, run_analysis_pipeline
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/documents", tags=["Document Analysis"])
+router = APIRouter(prefix="/api/analyses", tags=["Document Analysis"])
 
 
 # ── Pydantic schemas ──────────────────────────────────────
@@ -109,14 +110,13 @@ async def upload_document_endpoint(
         id=doc.id,
         original_filename=doc.original_filename,
         status=doc.status,
-        message="Файл загружен. Используйте POST /api/documents/{id}/analyze для запуска анализа.",
+        message="Файл загружен. Используйте POST /api/analyses/{id}/analyze для запуска анализа.",
     )
 
 
 @router.post("/{id}/analyze", response_model=AnalyzeResponse)
 async def analyze_document(
     id: str,
-    background_tasks: BackgroundTasks,
     request: Request,
     db: Session = Depends(get_db),
 ):
@@ -129,7 +129,7 @@ async def analyze_document(
     3. Синтез инсайтов (шаблоны, словарь, правила)
 
     Возвращает 202 Accepted — анализ выполняется асинхронно.
-    Статус можно отслеживать через GET /api/documents/{id}
+    Статус можно отслеживать через GET /api/analyses/{id}
     """
     doc = db.query(DocumentAnalysis).filter(DocumentAnalysis.id == id).first()
     if not doc:
@@ -145,19 +145,13 @@ async def analyze_document(
     selector = request.app.state.selector
     provider = await selector.select(topic="document_analysis", preference="auto")
 
-    # Запускаем фоновый анализ
-    async def _run():
-        try:
-            await run_analysis_pipeline(id, provider, db)
-        except Exception as e:
-            logger.error("Background analysis failed for %s: %s", id, e)
-
-    background_tasks.add_task(_run)
+    # Запускаем фоновый анализ (run_analysis_pipeline создаёт свою сессию БД)
+    asyncio.create_task(run_analysis_pipeline(id, provider))
 
     return AnalyzeResponse(
         id=id,
         status="analyzing",
-        message="Анализ запущен в фоне. Используйте GET /api/documents/{id} для отслеживания статуса.",
+        message="Анализ запущен в фоне. Используйте GET /api/analyses/{id} для отслеживания статуса.",
     )
 
 
